@@ -1,0 +1,165 @@
+/* Room Hack design system.
+   Shared by the landing page (/) and the workspace (/app/). Both pages import
+   this, so a token changed here changes both - which is the point of splitting
+   them into separate documents rather than duplicating a palette. */
+
+:root {
+  /* Dusk palette, sampled from the hero backdrop: a cool slate-blue drawn from
+     the evening sky, warmed by an ember accent taken from the lit windows and
+     the rust grass. Cool ground, warm glow - the same relationship the photo
+     has. Every pairing below clears WCAG AA against --bg and --panel, and
+     --accent carries white button text at 5.25:1. */
+  --bg:#f4f1ec; --panel:#fdfcfa; --ink:#26333f; --muted:#5c6874;
+  --line:#dcdfe1; --accent:#a8552a; --accent-dark:#8a4423; --soft:#e6e8e9;
+  --ok:#3f7a57; --warn:#8a5e18; --err:#a33a30;
+
+  /* One spacing scale, so padding is chosen from a set rather than invented
+     per component - the main reason the old single-file layout drifted. */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px; --s8:64px;
+  --r-sm:9px; --r-md:14px; --r-lg:20px; --r-xl:28px; --r-pill:999px;
+
+  --serif:'Fraunces',Georgia,'Times New Roman',serif;
+  --sans:'Figtree',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --shadow-sm:0 2px 8px #26333f12;
+  --shadow-md:0 8px 24px #26333f18;
+  --shadow-lg:0 18px 44px #26333f26;
+  --shadow-xl:0 26px 70px #26333f45;
+}
+
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+
+body {
+  margin:0; background:var(--bg); color:var(--ink);
+  font:15px/1.6 var(--sans);
+  font-feature-settings:"ss01";          /* Figtree: alternate one-storey a */
+  -webkit-font-smoothing:antialiased;
+}
+
+h1,h2,h3,h4,h5 {
+  font-family:var(--serif); margin:0;
+  /* 700, not 400: the earlier display faces were single-weight and read thin.
+     SOFT high rounds the terminals so the heavy weight stays warm rather than
+     turning stern; WONK keeps a little of the family's character. */
+  font-weight:700; letter-spacing:-.035em;
+  font-variation-settings:"SOFT" 60,"WONK" 1;
+}
+
+a { color:var(--accent-dark); }
+
+/* --- Controls -------------------------------------------------------------- */
+
+input, textarea, select, button {
+  width:100%; font:inherit; color:var(--ink); background:#fff;
+  border:1px solid var(--line); border-radius:var(--r-sm); padding:10px 12px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  outline:2px solid var(--accent); outline-offset:2px;
+}
+textarea { resize:vertical; min-height:62px; }
+
+button {
+  background:var(--accent); border-color:var(--accent); color:#fff;
+  font-weight:650; cursor:pointer;
+}
+button:hover:not(:disabled) { background:var(--accent-dark); border-color:var(--accent-dark); }
+button:disabled { opacity:.5; cursor:not-allowed; }
+
+/* Buttons default to the accent fill, so .primary is a no-op visually - it is
+   declared anyway so the intent is explicit at the call site and a future
+   change to the default cannot silently restyle every primary action. */
+.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.primary:hover:not(:disabled) { background:var(--accent-dark); border-color:var(--accent-dark); }
+
+.secondary { background:transparent; border-color:var(--line); color:var(--ink); }
+.secondary:hover:not(:disabled) { background:var(--soft); border-color:var(--muted); color:var(--ink); }
+.ghost { background:transparent; border-color:transparent; color:var(--muted); }
+.ghost:hover:not(:disabled) { background:var(--soft); color:var(--ink); }
+
+/* --- Primitives ------------------------------------------------------------ */
+
+.muted { color:var(--muted); }
+.err { color:var(--err); }
+.skip { color:var(--warn); font-size:13px; }
+.note-line { font-size:12px; margin:8px 0 0; }
+
+.row { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--line); }
+.row:last-child { border-bottom:0; }
+.total { border-top:1px solid var(--line); margin-top:6px; padding-top:10px; }
+
+.pill { font-size:11px; padding:2px 9px; border-radius:var(--r-pill); background:var(--soft); color:var(--muted); }
+.pill.ok { background:#e6f2ea; color:#2f6b47; }
+.pill.warn { background:#fbf0dc; color:var(--warn); }
+
+.banner { background:#fbf0dc; color:var(--warn); border-radius:var(--r-sm); padding:10px 12px; font-size:12px; margin-bottom:12px; }
+.merchant { margin:12px 0; padding:10px; background:var(--soft); border-radius:var(--r-sm); }
+
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; background:var(--muted); }
+.dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.err { background:var(--err); }
+
+.bar { height:6px; background:var(--soft); border-radius:var(--r-pill); overflow:hidden; margin:8px 0; }
+.bar i { display:block; height:100%; background:var(--ok); transition:width .3s ease; }
+.bar i.over { background:var(--err); }
+
+.spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* --- Brand ----------------------------------------------------------------- */
+
+.wordmark { font:700 20px var(--serif); letter-spacing:-.035em; color:var(--ink); text-decoration:none; font-variation-settings:"SOFT" 60,"WONK" 1; }
+.wordmark span { color:var(--accent); }
+
+/* --- Payment sheet ------------------------------------------------------
+   An in-page overlay, never a redirect. The user stays inside Room Hack
+   for the whole authorization, which is the only way the preview they read
+   and the charge they approve are verifiably the same thing. */
+.pay-overlay { position:fixed; inset:0; z-index:20; background:rgba(32,53,44,.45); backdrop-filter:blur(7px); display:grid; place-items:center; padding:20px; }
+.pay-sheet { width:min(100%,560px); max-height:min(880px,calc(100vh - 40px)); background:var(--panel); border-radius:var(--r-xl); box-shadow:var(--shadow-xl); display:grid; grid-template-rows:auto 1fr auto; overflow:hidden; }
+.pay-head { padding:17px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:11px; }
+.pay-head strong { font:700 19px Georgia,serif; } .pay-head .muted { font-size:12px; }
+.pay-close { width:auto; margin:0 0 0 auto; padding:5px 11px; background:transparent; color:var(--ink); border:1px solid var(--line); border-radius:999px; font-weight:600; }
+.pay-body { padding:20px 22px; overflow:auto; }
+.pay-foot { padding:15px 22px; border-top:1px solid var(--line); background:var(--soft); }
+.pay-foot button { margin:0; } .pay-foot .row { border:0; padding:2px 0; }
+/* Steps: the user can see how far along the authorization is, and that
+   nothing has been charged until the last one. */
+.pay-steps { display:flex; gap:6px; align-items:center; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:16px; }
+.pay-steps span { display:flex; align-items:center; gap:5px; }
+.pay-steps b { width:19px; height:19px; border-radius:50%; background:var(--soft); color:var(--muted); display:grid; place-items:center; font-size:10px; border:1px solid var(--line); }
+.pay-steps .on b { background:var(--accent); color:#fff; border-color:var(--accent); }
+.pay-steps .done b { background:var(--ok); color:#fff; border-color:var(--ok); }
+.pay-steps i { flex:1; height:1px; background:var(--line); font-style:normal; }
+/* One merchant = one charge = one statement line. Rendered as a distinct
+   block so a three-shop order can never read as a single mystery total. */
+.charge { border:1px solid var(--line); border-radius:var(--r-md); padding:13px; margin-bottom:11px; background:#fff; }
+.charge-head { display:flex; align-items:center; justify-content:space-between; gap:9px; margin-bottom:9px; }
+.charge-head strong { font-size:14px; } .charge-head .amt { font-weight:700; }
+.charge-line { display:grid; grid-template-columns:36px 1fr auto; gap:9px; align-items:center; padding:6px 0; }
+.charge-line img { width:36px; height:36px; object-fit:cover; border-radius:6px; background:var(--soft); }
+.charge-line span { font-size:12px; } .charge-line .muted { font-size:11px; }
+.charge-meta { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin-top:9px; padding-top:9px; border-top:1px dashed var(--line); font-size:11px; color:var(--muted); }
+.card-pill { display:inline-flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:3px 9px; font-size:11px; font-weight:600; color:var(--ink); }
+.card-pill.declined { background:#fdecec; border-color:#f0c2c2; color:#a3372f; }
+.card-pill.approved { background:#e6f2ea; border-color:#bcdcc7; color:#2f6b47; }
+.brand { font-weight:800; letter-spacing:-.04em; font-style:italic; color:#1a1f71; }
+.charge select { width:auto; padding:4px 8px; font-size:11px; border-radius:999px; background:#fff; }
+/* Risk: shown every time, including when everything is routine. A warning
+   that only ever appears on bad news trains people to click past it. */
+.risk { display:flex; gap:9px; padding:9px 11px; border-radius:10px; margin-bottom:8px; font-size:12px; background:var(--soft); }
+.risk.alert { background:#fbf0dc; } .risk.ok { background:#e6f2ea; }
+.risk-ico { flex:0 0 auto; font-weight:700; }
+.otp-input { font:700 22px/1 ui-monospace,monospace; letter-spacing:.42em; text-align:center; padding:13px; }
+.demo-code { background:var(--soft); border:1px dashed var(--line); border-radius:9px; padding:9px 11px; font-size:12px; margin-top:10px; }
+.demo-code code { font:700 14px ui-monospace,monospace; letter-spacing:.16em; color:var(--accent-dark); }
+/* Hold-to-authorize: a deliberate physical act, so money never moves on a
+   stray click or a mis-tap. */
+.hold-btn { position:relative; overflow:hidden; touch-action:none; user-select:none; }
+.hold-fill { position:absolute; inset:0 auto 0 0; width:0%; background:rgba(255,255,255,.28); pointer-events:none; transition:width .06s linear; }
+.hold-btn span { position:relative; }
+.pay-secure { display:flex; align-items:center; gap:7px; justify-content:center; color:var(--muted); font-size:11px; margin-top:9px; }
+.spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.audit { font-size:11px; color:var(--muted); background:var(--soft); border-radius:9px; padding:11px; margin-top:11px; }
+.audit div { padding:2px 0; } .audit strong { color:var(--ink); display:block; margin-bottom:5px; font-size:11px; text-transform:uppercase; letter-spacing:.1em; }

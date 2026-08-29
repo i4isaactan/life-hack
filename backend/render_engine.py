@@ -23,6 +23,7 @@ transform the real one does, so a projection bug surfaces without a key.
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 import base64
 import io
 import logging
@@ -31,7 +32,9 @@ from dataclasses import dataclass, field
 
 from . import config
 from .geometry import FloorProjection, ProjectionError
+from .rag_engine import role_for_label
 from .models import (
+    DimensionSource,
     CatalogItem,
     Confidence,
     Detection,
@@ -53,7 +56,6 @@ _DETECTION_PROMPTS: dict[Role, str] = {
     Role.SOFA: "sofa . couch . loveseat",
     Role.COFFEE_TABLE: "coffee table",
     Role.RUG: "rug . carpet",
-    Role.TV_UNIT: "tv stand . media console . sideboard",
     Role.ACCENT_CHAIR: "armchair . accent chair",
     Role.FLOOR_LAMP: "floor lamp",
 }
@@ -408,7 +410,7 @@ class RenderProvider:
         detections: list[Detection] = []
         for raw in (out or {}).get("detections", []):
             label = str(raw.get("label", "")).lower()
-            role = _role_for_label(label)
+            role = role_for_label(label)
             if role is None or role not in roles:
                 continue
             box = raw.get("bbox") or raw.get("box")
@@ -578,24 +580,6 @@ def _hex_rgb(swatch: str) -> tuple[int, int, int]:
         return (139, 115, 85)
 
 
-def _role_for_label(label: str) -> Role | None:
-    """Map a detector's free-text label back onto our role vocabulary."""
-    text = label.lower()
-    # Order matters: "coffee table" must beat a bare "table", and "tv stand"
-    # must not be caught by a generic match first.
-    for needles, role in [
-        (("coffee table",), Role.COFFEE_TABLE),
-        (("tv stand", "media console", "sideboard", "tv unit"), Role.TV_UNIT),
-        (("armchair", "accent chair"), Role.ACCENT_CHAIR),
-        (("floor lamp",), Role.FLOOR_LAMP),
-        (("sofa", "couch", "loveseat"), Role.SOFA),
-        (("rug", "carpet"), Role.RUG),
-    ]:
-        if any(n in text for n in needles):
-            return role
-    return None
-
-
 def _first_url(out) -> str | None:
     """Replicate returns a URL, a list of them, or a file-like object."""
     if out is None:
@@ -628,26 +612,71 @@ async def _fetch_b64(out) -> str | None:
         return None
 
 
+def _fetchable(url: str) -> bool:
+    """Whether this URL may be fetched for appearance conditioning.
+
+    Catalog image_urls are vendor CDN links, so fetching one is an outbound
+    request the server makes on behalf of a user request. `image_url` is data,
+    not code - it arrives from a scrape and could arrive from a user-supplied
+    catalog later - so the host is checked against an allowlist rather than
+    trusted. Without that, anything that can write a catalog entry can make
+    this server fetch an arbitrary URL, including one on a private network.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower()
+    return any(
+        host == allowed or host.endswith("." + allowed)
+        for allowed in config.IMAGE_FETCH_ALLOWED_HOSTS
+    )
+
+
 async def _fetch_product_image(url: str) -> str | None:
     """Fetch a catalog product shot for appearance conditioning.
 
-    Returns None for anything unfetchable, which the seed catalog's .invalid
-    host always is. That is the intended behaviour for demo data, not an error
-    worth surfacing to the user.
+    Returns None for anything unfetchable rather than raising: a missing
+    reference degrades a render, it does not break one, and the caller already
+    reports the piece as omitted.
     """
-    if not url or ".invalid" in url:
+    if not _fetchable(url):
+        log.info("product image host not allowed, skipping: %s", url[:100])
         return None
     try:
         import urllib.request
 
         def _get() -> bytes:
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                return resp.read()
+            # An explicit UA matters: a default "Python-urllib/3.x" is the
+            # first thing a CDN blocks, and a silent block would degrade every
+            # render to a text-conditioned guess with no obvious cause.
+            req = urllib.request.Request(
+                url, headers={"User-Agent": config.IMAGE_FETCH_USER_AGENT}
+            )
+            with urllib.request.urlopen(
+                req, timeout=config.IMAGE_FETCH_TIMEOUT_SECONDS
+            ) as resp:
+                # Read one byte past the cap so an oversized body is detected
+                # rather than silently truncated into a corrupt image.
+                data = resp.read(config.IMAGE_FETCH_MAX_BYTES + 1)
+                if len(data) > config.IMAGE_FETCH_MAX_BYTES:
+                    raise ValueError(
+                        f"product image exceeds {config.IMAGE_FETCH_MAX_BYTES} bytes"
+                    )
+                return data
 
         raw = await asyncio.to_thread(_get)
-        return f"data:image/jpeg;base64,{base64.b64encode(raw).decode()}"
+        # The declared type is cosmetic - every consumer decodes the base64 and
+        # lets PIL sniff the real format - but it should not claim JPEG for a
+        # PNG. Sniff the magic bytes instead of trusting the URL's extension.
+        mime = "image/png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+        return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
     except Exception as exc:
-        log.info("no product image for conditioning (%s): %s", url, exc)
+        log.info("no product image for conditioning (%s): %s", url[:100], exc)
         return None
 
 
@@ -659,7 +688,6 @@ _REFERENCE_PRIORITY: list[Role] = [
     Role.SOFA,
     Role.RUG,
     Role.COFFEE_TABLE,
-    Role.TV_UNIT,
     Role.ACCENT_CHAIR,
     Role.FLOOR_LAMP,
 ]
@@ -776,8 +804,6 @@ def _relate(
     parts: list[str] = []
     if placement.role is Role.COFFEE_TABLE and sofa:
         parts.append("directly in front of the sofa, within easy reach of it")
-    elif placement.role is Role.TV_UNIT and sofa:
-        parts.append("against the wall the sofa faces, opposite it")
     elif placement.role is Role.ACCENT_CHAIR and sofa:
         parts.append("angled towards the sofa, beside it")
     elif placement.role is Role.FLOOR_LAMP and sofa:
@@ -861,15 +887,22 @@ class GeminiComposer:
         ordered = ordered[:budget]
 
         room_img = _decode(image_b64)
+        # References are vendor CDN fetches, so they go out concurrently rather
+        # than one after another. Order is preserved by gathering in `ordered`
+        # order, which matters: the prompt refers to the references by
+        # position, so shuffling them would mislabel every piece.
+        wanted = [(p, items.get(p.item_id)) for p in ordered]
+        fetched = await asyncio.gather(
+            *[
+                _fetch_product_pil(item.image_url) if item is not None else _none()
+                for _p, item in wanted
+            ]
+        )
+
         parts: list = [room_img]
         used: list[Placement] = []
-        for p in ordered:
-            item = items.get(p.item_id)
-            if item is None:
-                omitted.append(p.item_id)
-                continue
-            product = await _fetch_product_pil(item.image_url)
-            if product is None:
+        for (p, item), product in zip(wanted, fetched):
+            if item is None or product is None:
                 # No reference means the model would invent this piece from its
                 # name alone, which is exactly the fidelity gap this path
                 # exists to close. Leave it out and say so.
@@ -952,6 +985,11 @@ def _compose_confidence(placements: list[Placement], room: RoomAnalysis) -> Conf
     if not room.measured:
         caps.append(Confidence.LOW)
     return min(caps, key=ladder.index)
+
+
+async def _none():
+    """Awaitable None, so a missing item can sit in an asyncio.gather list."""
+    return None
 
 
 async def _fetch_product_pil(url: str):
@@ -1066,11 +1104,11 @@ def selftest() -> None:
     from .seed_data import SEED_ITEMS
     from .solver import LayoutSolver
 
-    room = _MOCK_ROOM.model_copy(update={"measured": True})
+    room = _MOCK_ROOM.model_copy(update={"dimension_source": DimensionSource.MEASURED})
     items = {i.id: i for i in SEED_ITEMS}
     wishlist = [
         next(i for i in SEED_ITEMS if i.role is r)
-        for r in (Role.RUG, Role.SOFA, Role.COFFEE_TABLE, Role.TV_UNIT)
+        for r in (Role.RUG, Role.SOFA, Role.COFFEE_TABLE, Role.ACCENT_CHAIR)
     ]
     layout = LayoutSolver(room).solve(wishlist)
     assert layout.placements, "solver placed nothing; cannot exercise renderer"
@@ -1108,7 +1146,7 @@ def selftest() -> None:
 
     # 3. A render never claims more confidence than its inputs support. An
     # unmeasured room caps everything at MEDIUM however sure the solver was.
-    estimated = room.model_copy(update={"measured": False})
+    estimated = room.model_copy(update={"dimension_source": DimensionSource.ESTIMATED})
     est_layout = LayoutSolver(estimated).solve(wishlist)
     if est_layout.placements:
         est = asyncio.run(
@@ -1255,16 +1293,13 @@ async def render_room(
             detail="no composing renderer is configured",
         )
 
-    # Name the existing furniture so the prompt can ask for its removal. This
-    # is best-effort: without a detector we simply do not mention it, and the
-    # model is told to furnish the room rather than to clear it first.
-    replaced: list[str] = []
-    roles = list({p.role for p in placements})
-    try:
-        plate = await provider.prepare_plate(image_b64, roles)
-        replaced = [d.label for d in plate.detections]
-    except Exception as exc:
-        log.info("no detection available for removal hints: %s", exc)
+    # Name the existing furniture so the prompt can ask for its removal.
+    # These come from the room analysis, which already looked at this photo -
+    # re-detecting here would repeat that work, and on a deployment with no
+    # Replicate token it would find nothing at all and silently drop the
+    # removal hints. Best-effort: with no detections we simply do not mention
+    # it, and the model is told to furnish the room rather than clear it.
+    replaced = [d.label for d in room.detections]
 
     try:
         return await provider.composer.compose(
@@ -1303,7 +1338,7 @@ if __name__ == "__main__":
 
         # Measured: an unmeasured room withholds every wall-hugging piece, so
         # the demo would render a rug and a lamp and nothing worth looking at.
-        room = _MOCK_ROOM.model_copy(update={"measured": True})
+        room = _MOCK_ROOM.model_copy(update={"dimension_source": DimensionSource.MEASURED})
         wishlist = [
             next(i for i in SEED_ITEMS if i.role is r)
             for r in (Role.RUG, Role.SOFA, Role.COFFEE_TABLE, Role.FLOOR_LAMP)
@@ -1334,7 +1369,7 @@ if __name__ == "__main__":
 
         ok = [r for r in results if isinstance(r, RenderResult)]
         if ok:
-            out = "/tmp/roomcrafter_render.png"
+            out = "/tmp/roomhack_render.png"
             payload = ok[0].image_url.split(",", 1)[-1]
             with open(out, "wb") as fh:
                 fh.write(base64.b64decode(payload))

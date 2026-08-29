@@ -22,6 +22,7 @@ from .models import (
     ROLE_PRECISION,
     CatalogItem,
     Confidence,
+    DimensionSource,
     LayoutResult,
     MeasurementRequest,
     Opening,
@@ -214,7 +215,7 @@ class LayoutSolver:
         """Ideal top-left positions for a role, best first.
 
         Encodes the interior-design intent: sofas sit against the focal wall,
-        coffee tables centre on the sofa, TV units face it, lamps take corners.
+        coffee tables centre on the sofa, chairs flank it, lamps take corners.
         """
         m = self.margin
         focal = self.room.focal_wall
@@ -247,10 +248,6 @@ class LayoutSolver:
                     (sofa.rect.x - w - config.CLEARANCE_LADDER_CM[0], sofa.rect.cy - d / 2),
                 ]
             return [(cx, cy)]
-
-        if role is Role.TV_UNIT:
-            # Opposite the sofa, against the wall it faces.
-            return [self._against(_opposite(focal), w, d), (cx, m)]
 
         if role is Role.ACCENT_CHAIR:
             if sofa:
@@ -441,6 +438,19 @@ class LayoutSolver:
                 )
             else:
                 self._score(result, placed)
+                # A position cannot be more certain than the room it sits in.
+                # Furniture placed inside a ±60cm estimate honestly has at
+                # least ±60cm of slack, however tidy the geometry looks.
+                result.tolerance_cm = max(
+                    result.tolerance_cm, self.room.dimension_tolerance_cm
+                )
+                if (
+                    self.room.dimension_source is DimensionSource.CONFIRMED
+                    and result.confidence is Confidence.HIGH
+                ):
+                    # Confirmed-by-eye is good enough to place against a wall,
+                    # but not good enough to call the position exact.
+                    result.confidence = Confidence.MEDIUM
                 placed.append(result)
 
         return LayoutResult(
@@ -625,7 +635,7 @@ def selftest() -> None:
         room = RoomAnalysis(
             width_cm=w,
             depth_cm=d,
-            measured=True,
+            dimension_source=DimensionSource.MEASURED,
             openings=[Opening(kind="door", wall=Wall.NORTH, offset_cm=10, width_cm=80, swing_cm=80)],
         )
         result = LayoutSolver(room).solve(wishlist)
@@ -683,7 +693,7 @@ def selftest() -> None:
 
     # --- precision gate ---------------------------------------------------
     # Same room, same wishlist, differing only in how well it is measured.
-    estimated = RoomAnalysis(width_cm=400, depth_cm=320)  # measured=False
+    estimated = RoomAnalysis(width_cm=400, depth_cm=320)  # ESTIMATED by default
     est = LayoutSolver(estimated).solve(wishlist)
     exact_roles = {r for r, p in ROLE_PRECISION.items() if p is Precision.EXACT}
 
@@ -703,7 +713,8 @@ def selftest() -> None:
     # Nothing withheld may appear in the layout.
     assert not (withheld_roles & placed_roles), "item both withheld and placed"
 
-    measured = RoomAnalysis(width_cm=400, depth_cm=320, measured=True)
+    measured = RoomAnalysis(width_cm=400, depth_cm=320,
+                            dimension_source=DimensionSource.MEASURED)
     meas = LayoutSolver(measured).solve(wishlist)
     assert not meas.withheld, "measured room should withhold nothing"
     assert exact_roles <= {p.role for p in meas.placements}, (
@@ -711,9 +722,30 @@ def selftest() -> None:
     )
 
     # An irregular room cannot support wall anchors even when measured.
-    lshaped = RoomAnalysis(width_cm=400, depth_cm=320, measured=True, irregular=True)
+    lshaped = RoomAnalysis(width_cm=400, depth_cm=320, irregular=True,
+                           dimension_source=DimensionSource.MEASURED)
     assert LayoutSolver(lshaped).solve(wishlist).withheld, (
         "irregular room should withhold wall-hugging pieces"
+    )
+
+    # CONFIRMED is the middle tier: the user glanced at the estimate and said
+    # it looked right. That is enough to place against a wall, but the layout
+    # must not claim the precision of a real measurement.
+    confirmed = RoomAnalysis(
+        width_cm=400, depth_cm=320, dimension_source=DimensionSource.CONFIRMED
+    )
+    conf = LayoutSolver(confirmed).solve(wishlist)
+    assert not conf.withheld, "confirmed dimensions should release the gate"
+    assert exact_roles <= {p.role for p in conf.placements}, (
+        "confirmed room should place wall-hugging pieces"
+    )
+    # Every placement inherits at least the room's own uncertainty.
+    floor = confirmed.dimension_tolerance_cm
+    assert all(p.tolerance_cm >= floor for p in conf.placements), (
+        f"confirmed placements must carry at least ±{floor:.0f}cm"
+    )
+    assert all(p.confidence is not Confidence.HIGH for p in conf.placements), (
+        "confirmed-by-eye must not report HIGH placement confidence"
     )
 
     print("precision gate:")

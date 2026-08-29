@@ -27,12 +27,23 @@ from .models import (
     CartLine,
     CatalogItem,
     ChatMessage,
+    DimensionProposal,
+    DimensionSource,
+    Intent,
+    IntentKind,
+    Detection,
     LayoutResult,
     RoleOptions,
     RoomAnalysis,
     Role,
 )
-from .rag_engine import CatalogIndex, VisionProvider
+from .rag_engine import (
+    CatalogIndex,
+    DetectionProvider,
+    IntentProvider,
+    VisionProvider,
+)
+from .bundles import build_bundles
 from .solver import LayoutSolver
 
 log = logging.getLogger(__name__)
@@ -44,8 +55,21 @@ class GraphState(TypedDict, total=False):
     budget_cents: int
     aesthetic: str
     prompt: str
+    # Structured reading of `prompt`, produced by the parse_intent node. This
+    # is what lets "make it cheaper" change the budget instead of becoming
+    # three meaningless tokens in an embedding query.
+    intent: Intent | None
+    # Items the user has rejected this session; excluded from re-selection.
+    rejected_ids: list[str]
+    # Roles the user asked to drop from the design.
+    excluded_roles: list[str]
+    # Per-role width ceilings from "the sofa is too big".
+    size_caps: dict[str, float]
     # User-supplied room facts that override the vision estimate.
     measurements: dict[str, Any] | None
+    # Furniture found in the photo, carried across turns so a follow-up does
+    # not pay for a second detection pass over an image that has not changed.
+    detections: list[Detection] | None
     room: RoomAnalysis
     query: str
     candidates: dict[str, list[CatalogItem]]
@@ -59,12 +83,11 @@ class GraphState(TypedDict, total=False):
 # How much of the budget each role may claim. Seating and rugs dominate a real
 # room budget; lamps should never crowd out a sofa.
 BUDGET_SHARE: dict[Role, float] = {
-    Role.SOFA: 0.42,
-    Role.RUG: 0.18,
-    Role.TV_UNIT: 0.16,
-    Role.COFFEE_TABLE: 0.12,
-    Role.ACCENT_CHAIR: 0.20,
-    Role.FLOOR_LAMP: 0.08,
+    Role.SOFA: 0.46,
+    Role.RUG: 0.20,
+    Role.COFFEE_TABLE: 0.14,
+    Role.ACCENT_CHAIR: 0.22,
+    Role.FLOOR_LAMP: 0.10,
 }
 
 
@@ -113,8 +136,140 @@ def build_role_options(
     )
 
 
-def build_graph(index: CatalogIndex, vision: VisionProvider):
+def build_graph(
+    index: CatalogIndex,
+    vision: VisionProvider,
+    intent_provider: IntentProvider | None = None,
+    detector: DetectionProvider | None = None,
+):
     """Compile the workflow. No checkpointer: each request is single-shot."""
+
+    intents = intent_provider or IntentProvider()
+    detections_for = detector or DetectionProvider()
+
+    def parse_intent(state: GraphState) -> dict[str, Any]:
+        """Read the message as structured constraints before anything else runs.
+
+        Constraints accumulate rather than reset: an unmentioned budget or
+        aesthetic carries forward from the session, so "make it cheaper" changes
+        only the budget and leaves the brief intact.
+        """
+        writer = get_stream_writer()
+        intent = intents.parse(
+            message=state.get("prompt", ""),
+            history=state.get("messages") or [],
+            budget_cents=state.get("budget_cents"),
+            current_items=state.get("selected") or [],
+        )
+        writer({"type": "intent", "intent": intent.model_dump(mode="json")})
+
+        update: dict[str, Any] = {"intent": intent}
+
+        if intent.budget_cents:
+            update["budget_cents"] = intent.budget_cents
+            writer(
+                {
+                    "type": "text_delta",
+                    "text": f"Adjusting the budget to ${intent.budget_cents / 100:,.0f}. ",
+                }
+            )
+        if intent.aesthetic:
+            update["aesthetic"] = intent.aesthetic
+        if intent.style_note:
+            # Folded into the query rather than replacing the aesthetic, since
+            # "warmer" refines a style rather than naming a new one.
+            update["prompt"] = f"{state.get('prompt', '')}. {intent.style_note}"
+
+        # Rejections and exclusions persist for the session; a piece the user
+        # turned down should not reappear two turns later.
+        if intent.reject_item_ids:
+            update["rejected_ids"] = list(
+                {*(state.get("rejected_ids") or []), *intent.reject_item_ids}
+            )
+        if intent.remove_roles:
+            update["excluded_roles"] = list(
+                {
+                    *(state.get("excluded_roles") or []),
+                    *(r.value for r in intent.remove_roles),
+                }
+            )
+        if intent.max_width_cm:
+            update["size_caps"] = {
+                **(state.get("size_caps") or {}),
+                **intent.max_width_cm,
+            }
+
+        # A reroll rejects whatever currently fills that role, so the next
+        # search cannot simply hand back the same item.
+        if intent.reroll_roles:
+            current = state.get("selected") or []
+            rerolled = {
+                i.id for i in current if i.role in intent.reroll_roles
+            }
+            if rerolled:
+                update["rejected_ids"] = list(
+                    {*(update.get("rejected_ids") or state.get("rejected_ids") or []), *rerolled}
+                )
+        return update
+
+    def answer_directly(state: GraphState) -> dict[str, Any]:
+        """Respond from existing state - no retrieval, no solve, no spend.
+
+        Explaining a choice already made needs the design, not a new one.
+        """
+        writer = get_stream_writer()
+        intent = state.get("intent") or Intent()
+        layout = state.get("layout")
+
+        if intent.kind is IntentKind.EXPLAIN and layout is not None:
+            wanted = intent.explain_role
+            placements = [
+                p for p in layout.placements if wanted is None or p.role is wanted
+            ]
+            if placements:
+                # Lead with the model's sentence, then the solver's actual
+                # rationale and tolerance. The second part is the grounded
+                # claim - it comes from geometry, not from the language model.
+                if intent.reply:
+                    writer({"type": "text_delta", "text": intent.reply})
+                for p in placements:
+                    writer(
+                        {
+                            "type": "text_delta",
+                            "text": f"\n• {p.name} sits {p.rationale or 'where it fits'} "
+                            f"— {p.confidence.value} confidence, ±{p.tolerance_cm:.0f}cm.",
+                        }
+                    )
+                # Withheld pieces are the most interesting thing to explain:
+                # they are a deliberate refusal, not a failure.
+                for w in layout.withheld:
+                    if wanted is None or w.role is wanted:
+                        writer(
+                            {
+                                "type": "text_delta",
+                                "text": f"\n• {w.name} is on hold: {w.reason}",
+                            }
+                        )
+                return {}
+
+        writer(
+            {
+                "type": "text_delta",
+                "text": intent.reply
+                or "Tell me your room size, budget and the look you want, and "
+                "I'll put a design together.",
+            }
+        )
+        return {}
+
+    def route_intent(state: GraphState) -> str:
+        """Skip the design pipeline when the turn does not need one."""
+        intent = state.get("intent") or Intent()
+        if intent.kind in (IntentKind.EXPLAIN, IntentKind.CHITCHAT):
+            # Only answer directly if there is something to talk about.
+            if state.get("layout") is not None or intent.kind is IntentKind.CHITCHAT:
+                return "answer_directly"
+        return "analyze_room"
 
     def analyze_room(state: GraphState) -> dict[str, Any]:
         writer = get_stream_writer()
@@ -128,6 +283,18 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
         if supplied:
             room = room.model_copy(update=dict(supplied))
 
+        # What is already in the room. Cached on the state by the caller
+        # because this is a second vision call on the critical path, and a
+        # follow-up turn ("make it cheaper") re-runs the graph against the
+        # same photo - paying for detection again would be pure waste.
+        cached = state.get("detections")
+        if cached is not None:
+            room = room.model_copy(update={"detections": list(cached)})
+        elif state.get("image_b64"):
+            writer({"type": "text_delta", "text": "and what's already in it… "})
+            found = detections_for.detect(state.get("image_b64"))
+            room = room.model_copy(update={"detections": found})
+
         writer({"type": "room_analysis", "room": room.model_dump(mode="json")})
         qualifier = "measured at" if room.measured else "roughly"
         writer(
@@ -137,7 +304,15 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
                 f"{room.depth_cm/100:.1f}m with {room.flooring} flooring. ",
             }
         )
-        return {"room": room}
+        if room.detections:
+            names = ", ".join(d.label for d in room.detections[:4])
+            writer(
+                {
+                    "type": "text_delta",
+                    "text": f"I can see {names} in there. ",
+                }
+            )
+        return {"room": room, "detections": room.detections}
 
     def build_query(state: GraphState) -> dict[str, Any]:
         room = state["room"]
@@ -148,6 +323,15 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
             f"{room.wall_color} walls",
             f"{room.flooring} floor",
         ]
+        # What the user already owns is a stronger style signal than the
+        # adjective they typed, so the existing pieces steer retrieval toward
+        # things that will sit with them. Appended last and capped, so it
+        # colours the query without drowning out an explicit request: someone
+        # asking for "something brighter" must not be handed more of the beige
+        # they are trying to replace.
+        existing = room.existing_style
+        if existing:
+            parts.append(f"to sit alongside {existing}")
         return {"query": ". ".join(p for p in parts if p)}
 
     def retrieve_items(state: GraphState) -> dict[str, Any]:
@@ -161,36 +345,52 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
         max_w = room.width_cm - 2 * config.WALL_MARGIN_CM
         max_d = room.depth_cm - 2 * config.WALL_MARGIN_CM
 
+        rejected = set(state.get("rejected_ids") or [])
+        excluded = set(state.get("excluded_roles") or [])
+        size_caps = state.get("size_caps") or {}
+
         candidates: dict[str, list[CatalogItem]] = {}
         errors: list[str] = []
         for role in PLACEMENT_ORDER:
+            # The user asked for this role to be dropped entirely.
+            if role.value in excluded:
+                candidates[role.value] = []
+                continue
             # The share steers balance; it is not a hard ceiling. Applied as a
             # retrieval filter it can empty a whole category (no sofa is under
             # a 42% slice of a small budget), which silently removes seating
             # from the design. So retry unpriced and let select_items enforce
             # the real budget against options that actually exist.
             cap = int(budget * BUDGET_SHARE.get(role, 0.15))
+            # "The sofa is too big" narrows this role below what the room
+            # alone would allow.
+            role_w = min(max_w, size_caps.get(role.value, max_w))
             try:
                 hits = index.search(
                     query=state["query"],
                     role=role,
                     max_price_cents=cap,
-                    max_width_cm=max_w,
+                    max_width_cm=role_w,
                     max_depth_cm=max_d,
-                    limit=4,
+                    limit=6,
                 )
                 if not hits:
                     hits = index.search(
                         query=state["query"],
                         role=role,
-                        max_width_cm=max_w,
+                        max_width_cm=role_w,
                         max_depth_cm=max_d,
-                        limit=4,
+                        limit=6,
                     )
             except Exception as exc:
                 log.warning("catalog search failed for %s: %s", role.value, exc)
                 errors.append(f"search failed for {role.value}")
                 hits = []
+            # Drop anything the user has turned down. Done after retrieval so
+            # a rejection narrows the shortlist rather than the search itself,
+            # which would let a rejected item's near-duplicate rank in.
+            if rejected:
+                hits = [h for h in hits if h.id not in rejected]
             candidates[role.value] = hits
 
         found = sum(len(v) for v in candidates.values())
@@ -217,7 +417,6 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
             Role.SOFA,
             Role.RUG,
             Role.COFFEE_TABLE,
-            Role.TV_UNIT,
             Role.ACCENT_CHAIR,
             Role.FLOOR_LAMP,
         ]
@@ -299,6 +498,31 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
                     "withheld": [w.model_dump(mode="json") for w in layout.withheld],
                 }
             )
+
+            # Offer the estimate back for confirmation rather than demanding a
+            # measurement. A client renders this as a prefilled, editable field:
+            # accepting costs one tap, and people are much better at spotting a
+            # wrong number than producing a right one.
+            room = state["room"]
+            if room.dimension_source is DimensionSource.ESTIMATED:
+                proposal = DimensionProposal(
+                    width_cm=room.width_cm,
+                    depth_cm=room.depth_cm,
+                    source=room.dimension_source,
+                    unlocks=sorted({w.role.value for w in layout.withheld}),
+                    question=(
+                        f"I read your room as about {room.width_cm / 100:.1f}m × "
+                        f"{room.depth_cm / 100:.1f}m. Is that close? Confirming "
+                        "lets me place the pieces I'm holding back."
+                    ),
+                )
+                writer(
+                    {
+                        "type": "dimension_proposal",
+                        "proposal": proposal.model_dump(mode="json"),
+                    }
+                )
+                writer({"type": "text_delta", "text": f"\n\n{proposal.question}"})
         return {"layout": layout}
 
     def build_cart(state: GraphState) -> dict[str, Any]:
@@ -336,6 +560,31 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
                 "over_budget": cart.over_budget,
             }
         )
+
+        # Bundles extend the design the user just got, so they are built from
+        # the placed items and the solved layout. Failure here must not take
+        # the turn down with it: a missing suggestion is a smaller loss than a
+        # lost design.
+        try:
+            placed_items = [i for i in state.get("selected", []) if i.id in placed_ids]
+            bundles = build_bundles(
+                placed_items,
+                list(index.all_items()),
+                budget_cents=budget,
+                spent_cents=cart.subtotal_cents,
+                room=state.get("room"),
+                layout=layout,
+            )
+            if bundles:
+                writer(
+                    {
+                        "type": "bundles",
+                        "bundles": [b.model_dump(mode="json") for b in bundles],
+                    }
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("bundle suggestions unavailable: %s", exc)
+
         return {"cart": cart}
 
     def narrate(state: GraphState) -> dict[str, Any]:
@@ -400,6 +649,8 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
 
     graph = StateGraph(GraphState)
     for name, fn in [
+        ("parse_intent", parse_intent),
+        ("answer_directly", answer_directly),
         ("analyze_room", analyze_room),
         ("build_query", build_query),
         ("retrieve_items", retrieve_items),
@@ -410,7 +661,15 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
     ]:
         graph.add_node(name, fn)
 
-    graph.add_edge(START, "analyze_room")
+    graph.add_edge(START, "parse_intent")
+    # Explain and chitchat answer from existing state, skipping retrieval,
+    # solving and any API spend.
+    graph.add_conditional_edges(
+        "parse_intent",
+        route_intent,
+        {"answer_directly": "answer_directly", "analyze_room": "analyze_room"},
+    )
+    graph.add_edge("answer_directly", END)
     graph.add_edge("analyze_room", "build_query")
     graph.add_edge("build_query", "retrieve_items")
     graph.add_edge("retrieve_items", "select_items")

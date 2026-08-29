@@ -19,6 +19,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 HAS_OPENAI = bool(OPENAI_API_KEY)
 
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o")
+# Intent parsing is short, structured and on the critical path of every turn,
+# so it uses a smaller model than vision.
+INTENT_MODEL = os.getenv("INTENT_MODEL", "gpt-4o-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 # text-embedding-3-small's native width. The offline hash embedder emits the
@@ -122,6 +125,13 @@ INPAINT_MODEL = os.getenv(
 # Detection confidence floor. Below this a "sofa" is usually a cushion or a
 # reflection, and erasing it damages the plate.
 DETECTION_THRESHOLD = float(os.getenv("DETECTION_THRESHOLD", "0.35"))
+# A busy room photo yields a long tail of increasingly marginal objects. The
+# cap keeps one crowded photo from turning into dozens of catalog searches.
+MAX_DETECTIONS = int(os.getenv("MAX_DETECTIONS", "12"))
+# Detection returns a JSON object per object found, each with a sentence-long
+# caption, so it needs far more room than the fixed-shape room analysis.
+DETECTION_MAX_TOKENS = int(os.getenv("DETECTION_MAX_TOKENS", "1500"))
+
 # Masks are dilated before inpainting so the erase covers contact shadows and
 # soft edges the segmenter cuts too tightly.
 MASK_DILATE_PX = 12
@@ -130,6 +140,48 @@ MASK_DILATE_PX = 12
 RENDER_EDGE_PX = 1024
 # One item's full render. Generous: a cold Replicate container can take a while.
 RENDER_TIMEOUT_SECONDS = float(os.getenv("RENDER_TIMEOUT_SECONDS", "120"))
+
+# --- Reverse search --------------------------------------------------------
+# How many catalog matches to return per detected object.
+REVERSE_SEARCH_LIMIT = int(os.getenv("REVERSE_SEARCH_LIMIT", "5"))
+# Cosine similarity below which a match is returned but NOT called an
+# identification. Vector search always yields a nearest neighbour, so without
+# this floor the closest of eight rugs would be presented as an answer however
+# little it resembles the photo.
+#
+# Measured against this catalog with text-embedding-3-small, querying with the
+# detector's own captions: pieces the catalog really holds score 0.73-0.83,
+# while objects it has nothing like ("inflatable octopus lamp", "carved stone
+# throne") score 0.20-0.41. The gap between those bands is wide and empty,
+# which is what makes a single threshold workable; 0.60 sits in the middle of
+# it. Re-measure this if the embedding model or the caption prompt changes -
+# it is calibrated to both, not a universal constant.
+REVERSE_SEARCH_MIN_SCORE = float(os.getenv("REVERSE_SEARCH_MIN_SCORE", "0.60"))
+
+# --- Product image fetching ------------------------------------------------
+# Catalog image_urls point at the vendor's CDN, so fetching one is an outbound
+# request to a third party on the request path.
+
+# Sent on every product image fetch. A default "Python-urllib/3.x" is the first
+# thing a CDN rate-limits or blocks outright, and a silent block degrades every
+# render to a text-conditioned guess with no obvious cause.
+IMAGE_FETCH_USER_AGENT = os.getenv(
+    "IMAGE_FETCH_USER_AGENT",
+    "Room Hack/1.0 (+https://example.invalid/roomhack)",
+)
+IMAGE_FETCH_TIMEOUT_SECONDS = float(os.getenv("IMAGE_FETCH_TIMEOUT_SECONDS", "15"))
+# Ceiling on a single product image. The catalog's largest is ~690KB; this
+# leaves headroom without letting a redirect to something enormous through.
+IMAGE_FETCH_MAX_BYTES = int(os.getenv("IMAGE_FETCH_MAX_BYTES", str(8 * 1024 * 1024)))
+# Hosts allowed to serve product imagery. image_url reaches this process from
+# the catalog today, but it is data rather than code: an allowlist keeps a
+# future catalog edit or a scrape of a different site from turning the server
+# into an open fetcher for arbitrary URLs.
+IMAGE_FETCH_ALLOWED_HOSTS = tuple(
+    h.strip().lower()
+    for h in os.getenv("IMAGE_FETCH_ALLOWED_HOSTS", "www.ikea.com,ikea.com").split(",")
+    if h.strip()
+)
 # Renders run concurrently, but a burst of parallel GPU calls is the fastest
 # way to hit a rate limit, so keep it modest.
 RENDER_CONCURRENCY = int(os.getenv("RENDER_CONCURRENCY", "2"))

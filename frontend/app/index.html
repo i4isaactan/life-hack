@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design workspace — Room Hack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=Figtree:wght@400..700&display=swap">
+<link rel="stylesheet" href="../shared.css">
+<style>
+  /* --- App shell ----------------------------------------------------------
+     A fixed-height three-part frame: header, then a two-column body that owns
+     its own scrolling. The old planner let the whole document scroll, so the
+     chat composer wandered off-screen exactly when a user wanted to reply to
+     what they were reading. Here each column scrolls independently and the
+     composer is always in reach. */
+  html, body { height:100%; }
+  body { display:grid; grid-template-rows:auto 1fr; overflow:hidden; }
+
+  .app-head {
+    display:flex; align-items:center; gap:var(--s4);
+    padding:0 var(--s5); height:60px;
+    background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .app-head .back { color:var(--muted); text-decoration:none; font-size:13px; padding:6px 10px; border-radius:var(--r-pill); }
+  .app-head .back:hover { background:var(--soft); color:var(--ink); }
+  .app-head .sep { width:1px; height:22px; background:var(--line); }
+  #run-status {
+    display:flex; align-items:center; gap:7px; margin-left:auto;
+    font-size:12px; color:var(--muted); background:var(--soft);
+    padding:5px 12px; border-radius:var(--r-pill);
+  }
+  #health { font-size:12px; color:var(--muted); }
+
+  .app-body { display:grid; grid-template-columns:minmax(340px,400px) 1fr; min-height:0; }
+
+  /* --- Left rail: brief + conversation ----------------------------------- */
+  .rail {
+    display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0;
+    background:var(--panel); border-right:1px solid var(--line);
+  }
+  /* An open brief must not eat the whole rail, and must never clip its own
+     Generate button. Capping the <details> alone does not work: its content
+     box keeps its natural height and paints outside, letting the transcript
+     cover the button. Bounding the body itself is what actually contains it. */
+  .brief[open] { overflow:hidden; }
+  .brief[open] > .brief-body { max-height:46vh; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+
+  /* The brief is collapsed by default. It is set once at the start and rarely
+     revisited, so it should not permanently cost the transcript half its
+     height - but it stays one click away, not buried. */
+  .brief { border-bottom:1px solid var(--line); }
+  .brief > summary {
+    list-style:none; cursor:pointer; padding:var(--s4) var(--s5);
+    display:flex; align-items:center; gap:var(--s2); font-size:13px;
+    transition:background .15s ease;
+  }
+  .brief[open] > summary { background:var(--soft); }
+  .brief > summary::-webkit-details-marker { display:none; }
+  .brief > summary::after { content:"▾"; margin-left:auto; color:var(--muted); transition:transform .2s; }
+  .brief[open] > summary::after { transform:rotate(180deg); }
+  .brief > summary:hover { background:var(--soft); }
+  .brief strong { font-family:var(--sans); font-weight:650; }
+  #brief-summary { color:var(--muted); font-size:12px; }
+  .brief-body { padding:0 var(--s5) var(--s4); }
+
+  .drop {
+    position:relative; display:block; border:1.5px dashed #b9c7b8; border-radius:var(--r-md);
+    background:var(--soft); text-align:center; cursor:pointer; overflow:hidden; min-height:104px;
+  }
+  .drop:hover { border-color:var(--accent); }
+  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .drop-prompt { padding:var(--s5) var(--s3); }
+  .drop-prompt strong { display:block; font-family:var(--sans); font-size:13px; font-weight:650; }
+  .drop-prompt span { font-size:12px; color:var(--muted); }
+  #photo-preview { display:block; width:100%; height:150px; object-fit:cover; }
+
+  .field-label { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:var(--s4) 0 var(--s1); }
+  .measure-row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s2); }
+  .hint { font-size:11px; color:var(--muted); margin:var(--s1) 0 0; }
+
+  /* --- Transcript --------------------------------------------------------- */
+  .transcript {
+    overflow-y:auto; min-height:0;   /* without this the 1fr track refuses to
+                                        shrink and the content spills under
+                                        the composer instead of scrolling */
+    padding:var(--s5); display:flex; flex-direction:column; gap:var(--s3);
+    scrollbar-width:thin;
+  }
+  .bubble {
+    max-width:88%; padding:11px 14px; border-radius:var(--r-md) var(--r-md) var(--r-md) 4px;
+    background:var(--soft); font-size:14px; line-height:1.55;
+  }
+  .bubble.user { align-self:flex-end; border-radius:var(--r-md) var(--r-md) 4px var(--r-md); background:var(--ink); color:#fff; }
+  /* The assistant's reply carries bullets and paragraph breaks; without this it
+     renders as one undifferentiated block of prose. */
+  .reply p { margin:0 0 var(--s2); }
+  .reply p:last-child { margin-bottom:0; }
+  .reply ul { margin:0 0 var(--s2); padding-left:0; list-style:none; display:grid; gap:5px; }
+  .reply ul:last-child { margin-bottom:0; }
+  .reply li { position:relative; padding-left:var(--s4); }
+  .reply li::before {
+    content:""; position:absolute; left:5px; top:.62em; width:4px; height:4px;
+    border-radius:50%; background:var(--accent);
+  }
+  .bubble small { display:block; opacity:.6; font-size:10px; margin-bottom:3px; text-transform:uppercase; letter-spacing:.1em; }
+
+  .suggests { display:flex; flex-wrap:wrap; gap:var(--s2); margin-top:var(--s2); }
+  .suggests button {
+    width:auto; padding:7px 13px; border-radius:var(--r-pill); font-size:12.5px; font-weight:500;
+    background:var(--panel); border:1px solid var(--line); color:var(--muted); text-align:left;
+  }
+  .suggests button:hover { background:var(--soft); border-color:var(--accent); color:var(--ink); }
+
+  .composer { padding:var(--s4) var(--s5); border-top:1px solid var(--line); display:flex; gap:var(--s2); align-items:flex-end; }
+  .composer textarea { flex:1; min-height:42px; max-height:140px; resize:none; border-radius:var(--r-md); padding:11px 13px; }
+  .composer button { width:auto; padding:11px 18px; border-radius:var(--r-md); }
+
+  /* --- Canvas ------------------------------------------------------------- */
+  .canvas { display:grid; grid-template-rows:auto 1fr; min-height:0; }
+  .tabs { display:flex; gap:var(--s1); padding:var(--s3) var(--s5) 0; border-bottom:1px solid var(--line); }
+  .tabs button {
+    width:auto; background:transparent; border:0; border-bottom:2px solid transparent;
+    border-radius:0; color:var(--muted); font-size:13px; font-weight:600; padding:9px 14px;
+  }
+  .tabs button:hover:not(:disabled) { color:var(--ink); background:transparent; }
+  .tabs button.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
+  .tabs button:disabled { opacity:.35; }
+
+  .canvas-scroll { overflow-y:auto; min-height:0; padding:var(--s5); scrollbar-width:thin; }
+  .view { max-width:900px; }
+  .view h3 { font-size:19px; margin-bottom:var(--s1); }
+  .view > p.muted { font-size:13px; margin:0 0 var(--s4); }
+
+  /* An empty workspace should say what to do, not show four blank cards. */
+  .empty { display:grid; place-content:center; text-align:center; height:100%; padding:var(--s6); color:var(--muted); }
+  .empty h3 { font-size:24px; color:var(--ink); margin-bottom:var(--s2); }
+  .empty p { max-width:380px; margin:0 auto; font-size:14px; }
+  .empty .mark { font-size:40px; margin-bottom:var(--s4); opacity:.5; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s4); margin-bottom:var(--s4); }
+  .card h2 { font-family:var(--sans); font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); margin:0 0 var(--s3); }
+  .actions { display:flex; gap:var(--s2); margin-top:var(--s4); }
+  .actions button { margin:0; }
+
+  #floorplan svg {
+    width:100%; height:auto; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--r-md);
+    font-family:var(--sans);
+  }
+  #floorplan svg text { font-family:var(--sans); }
+
+  .cart-line { display:grid; grid-template-columns:46px 1fr auto; gap:var(--s3); align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .cart-line:last-child { border-bottom:0; }
+  .cart-line img { width:46px; height:46px; object-fit:cover; border-radius:8px; background:var(--soft); }
+  .cart-line-body { display:grid; } .cart-line-body span { font-size:12px; } .price { font-weight:700; }
+
+  .alt-group { margin-bottom:var(--s5); }
+  .alt-group h5 { font-family:var(--sans); font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 var(--s2); }
+  .alt-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(146px,1fr)); gap:var(--s3); }
+  .alt {
+    width:auto; margin:0; background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    border-radius:var(--r-md); padding:var(--s3); text-align:left; display:grid; gap:2px; font-weight:400;
+  }
+  .alt:hover:not(:disabled) { border-color:var(--accent); background:var(--panel); box-shadow:var(--shadow-md); transform:translateY(-1px); }
+  .alt img { width:100%; height:88px; object-fit:cover; border-radius:var(--r-sm); background:var(--soft); margin-bottom:var(--s1); }
+  .alt-name { font-weight:650; font-size:13px; }
+  .alt .muted { font-size:11px; }
+  .alt .delta { font-size:12px; font-weight:650; }
+  .delta.up { color:var(--warn); } .delta.down { color:var(--ok); }
+  .alt.unaffordable { opacity:.62; }
+  .bundle { border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s3); margin-bottom:var(--s3); background:var(--panel); }
+  .bundle-head { display:flex; align-items:baseline; gap:var(--s2); flex-wrap:wrap; margin-bottom:var(--s1); }
+  .bundle-label { font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; color:var(--accent-dark); }
+  .bundle-add { margin-left:auto; font-weight:700; }
+  .bundle-reason { font-size:12px; color:var(--muted); margin:0 0 var(--s2); }
+  .bundle-items { display:flex; gap:var(--s2); flex-wrap:wrap; margin-bottom:var(--s2); }
+  .bundle-piece { display:flex; align-items:center; gap:var(--s2); font-size:12px; border:1px solid var(--line); border-radius:var(--r-sm); padding:4px 8px; }
+  .bundle-piece img { width:34px; height:34px; object-fit:cover; border-radius:4px; background:var(--soft); }
+  .bundle-piece.owned { opacity:.6; }
+  .bundle-flags { display:flex; gap:var(--s2); flex-wrap:wrap; }
+
+  .render-img { width:100%; border-radius:var(--r-md); display:block; }
+  .render-item { margin:0 0 var(--s4); }
+  .ask { padding:var(--s3); background:var(--soft); border-radius:var(--r-sm); margin-bottom:var(--s2); }
+  .ask p { margin:0 0 var(--s1); font-size:13px; }
+
+  @media (max-width:900px) {
+    body { overflow:auto; }
+    .app-body { grid-template-columns:1fr; }
+    .rail { border-right:0; border-bottom:1px solid var(--line); }
+    .transcript { max-height:44vh; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-head">
+  <a class="wordmark" href="../index.html">Room<span>Hack</span></a>
+  <span class="sep"></span>
+  <a class="back" href="../index.html">← Home</a>
+  <div id="run-status" hidden></div>
+  <span id="health">Checking API…</span>
+</header>
+
+<div class="app-body">
+
+  <section class="rail">
+    <details class="brief">
+      <summary><strong>Your brief</strong> <span id="brief-summary"></span></summary>
+      <div class="brief-body">
+        <label class="drop" for="room-photo-input">
+          <input id="room-photo-input" type="file" accept="image/*" aria-label="Upload room photo">
+          <div class="drop-prompt" id="photo-prompt">
+            <strong>Add a room photo</strong>
+            <span>We'll measure and design around it</span>
+          </div>
+          <img id="photo-preview" alt="Your room" hidden>
+        </label>
+        <p class="hint" id="upload-name"></p>
+
+        <label class="field-label" for="chat-style">Style</label>
+        <select id="chat-style">
+          <option>Modern Lux</option><option>Soft Minimal</option>
+          <option>Warm Japandi</option><option>Bold Eclectic</option>
+        </select>
+
+        <label class="field-label" for="chat-budget">Budget (USD)</label>
+        <input id="chat-budget" type="number" min="0" placeholder="e.g. 2500">
+
+        <label class="field-label">Room size (cm)</label>
+        <div class="measure-row">
+          <input id="room-width" type="number" min="0" placeholder="width" aria-label="Room width in cm">
+          <input id="room-depth" type="number" min="0" placeholder="depth" aria-label="Room depth in cm">
+        </div>
+        <p class="hint">Real measurements unlock pieces the solver won't place from a photo estimate alone.</p>
+
+        <button class="primary" id="generate-layout" style="margin-top:var(--s4)">Generate my layout →</button>
+      </div>
+    </details>
+
+    <div class="transcript" id="message-list">
+      <div class="bubble">
+        <small>Room Hack</small>
+        Tell me about the room you're designing — or add a photo and I'll work from that.
+      </div>
+      <div class="suggests">
+        <button data-suggest="Design my living room to feel calmer, warmer and more spacious.">Calmer &amp; warmer living room</button>
+        <button data-suggest="I have a small apartment living room. Make it feel bigger.">Make a small room feel bigger</button>
+        <button data-suggest="Design a Japandi living room under $2500.">Japandi under $2,500</button>
+      </div>
+    </div>
+
+    <div class="composer">
+      <textarea id="chat-message" rows="1" placeholder="Describe your space…" aria-label="Message Room Hack"></textarea>
+      <button class="primary" id="chat-send">Send</button>
+    </div>
+  </section>
+
+  <section class="canvas">
+    <div class="tabs" id="canvas-tabs" role="tablist" hidden>
+      <button id="tab-plan"   role="tab" aria-selected="false" disabled>Floor plan</button>
+      <button id="tab-render" role="tab" aria-selected="false" disabled>Visualization</button>
+      <button id="tab-cart"   role="tab" aria-selected="false" disabled>Cart</button>
+      <button id="tab-alts"   role="tab" aria-selected="false" disabled>Swap pieces</button>
+    </div>
+
+    <div class="canvas-scroll">
+      <div class="empty" id="canvas-empty">
+        <div class="mark">◱</div>
+        <h3>Your design appears here</h3>
+        <p>Describe your room in the conversation, or fill in the brief and generate a layout. The floor plan is solved against your room's real dimensions.</p>
+      </div>
+
+      <div class="view" id="view-plan" hidden>
+        <h3>Floor plan</h3>
+        <p class="muted">Solved against your room's dimensions. Dashed outlines are provisional.</p>
+        <div class="card" id="panel-plan" hidden>
+          <div id="floorplan"></div>
+          <div id="plan-notes"></div>
+        </div>
+        <div class="card" id="panel-room" hidden>
+          <h2>Your room</h2>
+          <div id="room-facts"></div>
+        </div>
+        <div class="card" id="panel-ask" hidden>
+          <h2>To place everything, we need</h2>
+          <div id="asks"></div>
+          <p class="muted note-line">Add the measurements in your brief, then generate again.</p>
+        </div>
+      </div>
+
+      <div class="view" id="view-render" hidden>
+        <h3>Visualization</h3>
+        <p class="muted">An AI approximation of these products in your room — not a photograph.</p>
+        <div class="card" id="panel-render" hidden><div id="renders"></div></div>
+      </div>
+
+      <div class="view" id="view-cart" hidden>
+        <h3>Your cart</h3>
+        <p class="muted">Everything in your design, priced by merchant.</p>
+        <div class="card" id="panel-cart" hidden>
+          <div id="cart-lines"></div>
+          <div id="cart-total"></div>
+          <div class="actions">
+            <button id="do-render" disabled>Visualize</button>
+            <button id="do-checkout" class="secondary" disabled>Checkout</button>
+          </div>
+          <p class="muted note-line" id="render-hint" hidden>Add a room photo in your brief to visualize this design in your own room.</p>
+        </div>
+        <div class="card" id="panel-bundles" hidden>
+          <h2>Complete the set</h2>
+          <p class="muted">Suggested from the product data — matching ranges and styling, not purchase history.</p>
+          <div id="bundles"></div>
+        </div>
+        <div class="card" id="panel-checkout" hidden>
+          <h2>Simulated order</h2>
+          <div id="checkout"></div>
+        </div>
+      </div>
+
+      <div class="view" id="view-alts" hidden>
+        <h3>Swap a piece</h3>
+        <p class="muted">Every swap re-solves the layout and re-prices the cart — a different sofa may not fit.</p>
+        <div class="card" id="panel-alts" hidden><div id="alts"></div></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="pay-overlay" id="pay-overlay" hidden><div class="pay-sheet" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+  <div class="pay-head"><div><strong id="pay-title">Confirm your purchase</strong><span class="muted" id="pay-sub">Review before anything is charged</span></div><button class="pay-close" id="pay-close">Cancel</button></div>
+  <div class="pay-body" id="pay-body"></div>
+  <div class="pay-foot" id="pay-foot"></div>
+</div></div>
+
+<script src="../app.js"></script>
+</body>
+</html>

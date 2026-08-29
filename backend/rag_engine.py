@@ -36,7 +36,10 @@ from .models import (
     CameraCalibration,
     CatalogItem,
     Confidence,
+    DetectedMatch,
+    Detection,
     FloorQuad,
+    ReverseSearchResult,
     RoomAnalysis,
     Role,
     Wall,
@@ -113,6 +116,52 @@ class EmbeddingProvider:
         return [hash_embed(t) for t in texts]
 
 
+# --- Label vocabulary ------------------------------------------------------
+
+# Free-text detector labels mapped onto the roles we sell. Order matters:
+# "coffee table" must beat a bare "table", so specific needles come first.
+#
+# A label that matches nothing here is not an error - it is a bookshelf, and we
+# keep it as a Detection with role=None. This list decides what can be
+# REPLACED, not what can be SEEN.
+_ROLE_NEEDLES: list[tuple[tuple[str, ...], Role]] = [
+    (("coffee table", "cocktail table"), Role.COFFEE_TABLE),
+    (("side table", "end table", "nesting table"), Role.COFFEE_TABLE),
+    (("armchair", "accent chair", "lounge chair", "recliner"), Role.ACCENT_CHAIR),
+    (("floor lamp", "standing lamp", "reading lamp"), Role.FLOOR_LAMP),
+    (("sofa", "couch", "loveseat", "settee", "sectional"), Role.SOFA),
+    (("rug", "carpet"), Role.RUG),
+]
+
+
+def role_for_label(label: str) -> Role | None:
+    """Map a detector's free-text label onto our role vocabulary, or None."""
+    text = label.lower()
+    for needles, role in _ROLE_NEEDLES:
+        if any(n in text for n in needles):
+            return role
+    return None
+
+
+def _loads_loose(raw: str) -> dict | None:
+    """Parse JSON from model output, tolerating fences and stray prose.
+
+    Models wrap JSON in code fences and explanatory sentences often enough that
+    strict parsing throws away good answers, so take the outermost object.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 # --- Vision ----------------------------------------------------------------
 
 _VISION_PROMPT = """You are an interior architect analysing a room photo.
@@ -143,10 +192,19 @@ with the fireplace, television, or main window.
 
 floor_quad traces the visible floor as a quadrilateral, in NORMALIZED image
 coordinates where [0,0] is the top-left of the photo and [1,1] the
-bottom-right. "near" is the edge closest to the camera (lower in frame), "far"
-is the edge at the back wall. Follow the floor's actual perspective: in a
-typical photo the near edge is wider than the far edge. If the floor is mostly
-hidden or you cannot trace it, omit floor_quad entirely rather than guessing.
+bottom-right. "near" is the floor edge closest to the camera; "far" is the
+edge meeting the back wall.
+
+Two rules that are easy to get backwards - check your answer against both:
+  1. near_left[1] and near_right[1] must be LARGER than far_left[1] and
+     far_right[1]. Image y grows DOWNWARD, so the near edge is at the BOTTOM
+     of the photo (y closer to 1.0) and the far edge is higher up (y closer
+     to 0.0). Typical values: near y around 0.9, far y around 0.45.
+  2. The near edge must be WIDER than the far edge, because parallel floor
+     edges converge with distance.
+
+If the floor is mostly hidden or you cannot trace it, omit floor_quad entirely
+rather than guessing.
 
 horizon_y is the eye-level horizon as a fraction of image height.
 
@@ -213,8 +271,19 @@ class VisionProvider:
                 log.warning("OpenAI vision unavailable, using offline: %s", exc)
 
     def analyze(self, image_b64: str | None) -> RoomAnalysis:
-        if self._client is None or not image_b64:
-            return _MOCK_ROOM.model_copy()
+        # Two different reasons to skip the model, reported differently. No
+        # photo is the ordinary case - there is nothing to analyse, and the
+        # design proceeds from a stated or default room. No client is a
+        # misconfiguration the operator probably wants to know about, and it
+        # is the only one of the two that means "mock".
+        if not image_b64:
+            return _MOCK_ROOM.model_copy(update={"source": "default"})
+        if self._client is None:
+            log.warning(
+                "vision provider unavailable; falling back to the default room "
+                "despite a photo being supplied"
+            )
+            return _MOCK_ROOM.model_copy(update={"source": "mock"})
         try:
             resp = self._client.chat.completions.create(
                 model=config.VISION_MODEL,
@@ -239,24 +308,19 @@ class VisionProvider:
             return self._parse(raw)
         except Exception as exc:
             log.warning("vision call failed, using offline analysis: %s", exc)
-            return _MOCK_ROOM.model_copy()
+            return _MOCK_ROOM.model_copy(update={"source": "mock"})
 
     def _parse(self, raw: str) -> RoomAnalysis:
         """Parse the model's JSON, tolerating code fences and stray prose."""
-        text = raw.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
-        # Models occasionally wrap JSON in a sentence; take the outermost object.
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end == -1:
+        data = _loads_loose(raw)
+        if data is None:
             log.warning("vision returned no JSON object; using offline analysis")
-            return _MOCK_ROOM.model_copy()
+            return _MOCK_ROOM.model_copy(update={"source": "mock"})
         try:
-            data = json.loads(text[start : end + 1])
             room = RoomAnalysis(**{**data, "source": "openai"})
         except Exception as exc:
             log.warning("vision JSON invalid (%s); using offline analysis", exc)
-            return _MOCK_ROOM.model_copy()
+            return _MOCK_ROOM.model_copy(update={"source": "mock"})
 
         # Clamp implausible estimates rather than trusting them into the solver,
         # where a 30cm or 5000cm room would produce nonsense.
@@ -306,6 +370,33 @@ def _parse_camera(data: dict) -> CameraCalibration | None:
         log.warning("floor_quad edges degenerate; ignoring")
         return None
 
+    # The near edge must sit LOWER in the frame than the far edge: image y
+    # grows downward, and the floor closest to the camera is at the bottom of
+    # the photo. Models get this backwards often enough that it is worth
+    # checking - an inverted quad still yields a valid, invertible homography,
+    # so nothing downstream would catch it. The symptom is furniture at the
+    # front of the room rendering at the top of the image.
+    near_y = (corners["near_left"][1] + corners["near_right"][1]) / 2
+    far_y = (corners["far_left"][1] + corners["far_right"][1]) / 2
+    if near_y <= far_y:
+        log.warning(
+            "floor_quad vertically inverted (near y=%.2f <= far y=%.2f); ignoring",
+            near_y,
+            far_y,
+        )
+        return None
+
+    # Perspective also requires the near edge to be no narrower than the far
+    # one. A near edge narrower than the far edge means the corners are
+    # mislabelled, which produces a mirrored render.
+    if near_w < far_w * 0.9:
+        log.warning(
+            "floor_quad perspective reversed (near %.2f < far %.2f); ignoring",
+            near_w,
+            far_w,
+        )
+        return None
+
     horizon = data.get("horizon_y", 0.35)
     try:
         horizon = min(max(float(horizon), 0.0), 1.0)
@@ -331,6 +422,352 @@ def _parse_camera(data: dict) -> CameraCalibration | None:
         # promotes a render past MEDIUM.
         confidence=Confidence.MEDIUM,
     )
+
+
+# --- Intent ----------------------------------------------------------------
+
+_INTENT_PROMPT = """You are the intent parser for a furniture shopping
+assistant. The user is designing a room. Read their latest message in the
+context of the conversation and return ONLY a JSON object.
+
+{
+  "kind": "design"|"refine"|"replace"|"explain"|"measure"|"chitchat",
+  "budget_cents": <int, only if they state or change a budget>,
+  "aesthetic": "<style name, only if they name or change one>",
+  "style_note": "<short phrase capturing a vague steer like 'warmer', 'less busy'>",
+  "reroll_roles": ["sofa"|"rug"|"coffee_table"|"accent_chair"|"floor_lamp"],
+  "remove_roles": [same vocabulary],
+  "max_width_cm": {"sofa": 180},
+  "explain_role": "<role they are asking about>",
+  "reply": "<your answer, ONLY for explain or chitchat>",
+  "reasoning": "<one short sentence on why you read it this way>"
+}
+
+Rules:
+- kind "design" = a fresh brief. "refine" = adjust what exists (cheaper,
+  warmer, bigger). "replace" = swap a specific piece. "explain" = they asked
+  why something was chosen. "measure" = they gave room dimensions or door
+  positions. "chitchat" = anything else.
+- Only include a field if the message actually says so. Omit everything else -
+  unmentioned constraints carry forward and must not be reset.
+- "make it cheaper" with a known current total means budget_cents roughly 70%
+  of that total. "much cheaper" means roughly half.
+- "I don't like the X" / "show me another X" -> reroll_roles: ["x"].
+- "the sofa is too big" -> max_width_cm, estimating a sensible ceiling from
+  the room width if you know it.
+- For kind "explain", ALWAYS set explain_role if the message names or clearly
+  implies a piece ("why is the sofa there" -> "sofa", "why that rug" -> "rug").
+  Leave it null only when they ask about the design as a whole.
+- Set "reply" ONLY for explain and chitchat. For every other kind leave it
+  empty - the pipeline generates the response itself. Note that for "explain"
+  the pipeline appends the real placement rationale after your reply, so keep
+  it to one sentence and never invent positions or measurements."""
+
+
+# --- Furniture detection ---------------------------------------------------
+
+# One call does both jobs. Asking separately - boxes, then a caption per crop -
+# costs one request per object and loses context: a model that can see the
+# whole room writes "matching pair of dining chairs" where a lone crop writes
+# "wooden chair". The box is what makes the caption checkable, so they belong
+# in the same answer.
+_DETECT_PROMPT = """You are cataloguing the furniture visible in a room photo.
+
+List every distinct piece of furniture you can see. For each one give a tight
+bounding box and a description precise enough to find that piece in a shop.
+
+Respond with ONLY a JSON object, no prose or code fences:
+{
+  "detections": [
+    {
+      "label": "<the object's common name, e.g. sofa, armchair, coffee table>",
+      "box": [<x1>, <y1>, <x2>, <y2>],
+      "confidence": <0-1>,
+      "caption": "<appearance: form, colour, material, legs, distinguishing detail>"
+    }
+  ]
+}
+
+box is NORMALIZED to the image: [0,0] is the top-left corner and [1,1] the
+bottom-right. x1 < x2 and y1 < y2. Box the object only - not the wall behind
+it, not the rug underneath it.
+
+caption is what makes this useful, so make it specific and visual. Write what
+you would say to someone finding this exact piece in a catalogue:
+  GOOD: "low two-seat sofa in oatmeal boucle, rounded arms, tapered oak legs"
+  BAD:  "a nice comfortable sofa"
+Name the silhouette, the colour, the material and the legs. Do not guess a
+brand, and do not mention the room, the lighting or the photo.
+
+confidence is how sure you are the object is really there and really is what
+you called it. Use below 0.4 for anything partly hidden, reflected, or so
+small you are inferring it.
+
+Include furniture you cannot name precisely - a bookshelf, a bed, a cabinet -
+using its ordinary name. Do NOT include walls, floors, windows, doors, plants,
+cushions, throws, books, or anything hanging on a wall.
+
+If the photo shows no furniture at all, return {"detections": []}."""
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(float(value), 1.0))
+
+
+def _parse_detections(data: dict) -> list[Detection]:
+    """Build Detections from model JSON, dropping anything malformed.
+
+    Every rejection here is silent by design: one unparseable entry in a list
+    of eight is not worth failing a room analysis over, and the alternative -
+    a Detection with a garbage box - would erase the wrong pixels.
+    """
+    out: list[Detection] = []
+    for raw in data.get("detections") or []:
+        if not isinstance(raw, dict):
+            continue
+        box = raw.get("box") or raw.get("bbox")
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            continue
+        try:
+            x1, y1, x2, y2 = (_clamp01(v) for v in box)
+        except (TypeError, ValueError):
+            continue
+        # A model that returns corners in the wrong order means a box, not a
+        # failure; normalising is kinder than dropping it.
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if y2 < y1:
+            y1, y2 = y2, y1
+        # Zero-area boxes carry no information and would crop to nothing.
+        if x2 - x1 < 1e-3 or y2 - y1 < 1e-3:
+            continue
+
+        label = str(raw.get("label", "")).strip().lower()
+        if not label:
+            continue
+        try:
+            score = _clamp01(raw.get("confidence", raw.get("score", 0.0)))
+        except (TypeError, ValueError):
+            score = 0.0
+
+        out.append(
+            Detection(
+                role=role_for_label(label),
+                label=label,
+                score=score,
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                caption=str(raw.get("caption", "")).strip(),
+            )
+        )
+    return out
+
+
+class DetectionProvider:
+    """Finds and describes the furniture already in a room photo.
+
+    Uses the same multimodal model as VisionProvider rather than a dedicated
+    detector. A specialist like Grounding DINO localises better, but it only
+    emits boxes for a fixed prompt vocabulary - it cannot say "oatmeal boucle,
+    tapered oak legs", which is the whole input to reverse search. The box only
+    has to be good enough to crop by; the caption is what gets matched.
+
+    Offline there is nothing to fall back to. A canned detection list would be
+    a lie about a specific photo - unlike a canned *room*, which is an honest
+    default when no photo exists - so this returns nothing and says so.
+    """
+
+    def __init__(self) -> None:
+        self._client = None
+        self.source = "mock"
+        if config.HAS_OPENAI:
+            try:
+                from openai import OpenAI
+
+                self._client = OpenAI(api_key=config.OPENAI_API_KEY)
+                self.source = "openai"
+            except Exception as exc:  # pragma: no cover - defensive
+                log.warning("OpenAI detection unavailable: %s", exc)
+
+    @property
+    def available(self) -> bool:
+        return self._client is not None
+
+    def detect(self, image_b64: str | None) -> list[Detection]:
+        if not image_b64 or self._client is None:
+            return []
+        try:
+            resp = self._client.chat.completions.create(
+                model=config.VISION_MODEL,
+                max_tokens=config.DETECTION_MAX_TOKENS,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": _DETECT_PROMPT},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_b64}",
+                                    # "high" where room analysis uses "low":
+                                    # a box drawn on a downsampled thumbnail is
+                                    # too coarse to crop a chair out of, and the
+                                    # crop is what gets matched.
+                                    "detail": "high",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+        except Exception as exc:
+            log.warning("detection call failed, continuing without it: %s", exc)
+            return []
+
+        data = _loads_loose(raw)
+        if data is None:
+            log.warning("detection returned no JSON object")
+            return []
+
+        found = _parse_detections(data)
+        kept = [d for d in found if d.score >= config.DETECTION_THRESHOLD]
+        # Biggest first, so "the sofa" means the one that dominates the photo.
+        kept.sort(key=lambda d: d.area, reverse=True)
+        if len(found) != len(kept):
+            log.info(
+                "detection: kept %d of %d above threshold %.2f",
+                len(kept),
+                len(found),
+                config.DETECTION_THRESHOLD,
+            )
+        return kept[: config.MAX_DETECTIONS]
+
+
+def crop_detection(image_b64: str, det: Detection) -> str | None:
+    """The detected object alone, as base64 JPEG. None if it cannot be cut."""
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+        crop = img.crop(det.crop_box(img.width, img.height))
+        buf = io.BytesIO()
+        crop.save(buf, format="JPEG", quality=88)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        log.warning("could not crop detection %s: %s", det.label, exc)
+        return None
+
+
+def _mock_intent(message: str, budget_cents: int | None) -> "Intent":
+    """Keyword intent parsing for the offline path.
+
+    Deliberately crude - it exists so the demo still responds to "cheaper" and
+    "different rug" without a key, not to compete with the model.
+    """
+    from .models import Intent, IntentKind, Role
+
+    text = (message or "").lower()
+
+    if any(w in text for w in ("why", "how come", "explain")):
+        role = next((r for r in Role if r.value.replace("_", " ") in text), None)
+        return Intent(
+            kind=IntentKind.EXPLAIN,
+            explain_role=role,
+            reasoning="offline keyword match on 'why'",
+        )
+
+    intent = Intent(kind=IntentKind.REFINE, reasoning="offline keyword match")
+
+    if "cheaper" in text or "less expensive" in text or "budget" in text:
+        if budget_cents:
+            factor = 0.5 if ("much" in text or "way" in text) else 0.7
+            intent.budget_cents = int(budget_cents * factor)
+
+    for role in Role:
+        spoken = role.value.replace("_", " ")
+        if spoken in text or role.value in text:
+            if any(w in text for w in ("another", "different", "don't like", "hate", "swap")):
+                intent.reroll_roles.append(role)
+            elif any(w in text for w in ("no ", "without", "remove", "don't need")):
+                intent.remove_roles.append(role)
+
+    # Nothing recognised: treat it as a fresh brief rather than a no-op refine,
+    # which would silently ignore the user.
+    if not (intent.budget_cents or intent.reroll_roles or intent.remove_roles):
+        intent.kind = IntentKind.DESIGN
+    return intent
+
+
+class IntentProvider:
+    """Turns a chat message into a structured Intent."""
+
+    def __init__(self) -> None:
+        self._client = None
+        self.source = "mock"
+        if config.HAS_OPENAI:
+            try:
+                from openai import OpenAI
+
+                self._client = OpenAI(api_key=config.OPENAI_API_KEY)
+                self.source = "openai"
+            except Exception as exc:  # pragma: no cover - defensive
+                log.warning("OpenAI intent unavailable, using offline: %s", exc)
+
+    def parse(
+        self,
+        message: str,
+        history: list | None = None,
+        budget_cents: int | None = None,
+        current_items: list | None = None,
+    ) -> "Intent":
+        from .models import Intent
+
+        if self._client is None or not (message or "").strip():
+            return _mock_intent(message, budget_cents)
+
+        # Context the parser needs to resolve relative asks: "cheaper" than
+        # what, "another one" instead of which.
+        context = []
+        if budget_cents:
+            context.append(f"Current budget: ${budget_cents / 100:,.0f}")
+        if current_items:
+            context.append(
+                "Currently in the design: "
+                + ", ".join(
+                    f"{i.title} ({i.role.value}, ${i.price_cents / 100:,.0f})"
+                    for i in current_items
+                )
+            )
+        turns = [
+            {"role": m.role, "content": m.content} for m in (history or [])[-6:]
+        ]
+
+        try:
+            resp = self._client.chat.completions.create(
+                model=config.INTENT_MODEL,
+                max_tokens=400,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": _INTENT_PROMPT},
+                    *turns,
+                    {
+                        "role": "user",
+                        "content": ("\n".join(context) + "\n\n" if context else "")
+                        + f"Latest message: {message}",
+                    },
+                ],
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            data = json.loads(raw)
+            # Drop nulls so unset fields fall back to the model defaults rather
+            # than overwriting carried-forward state with None.
+            return Intent(**{k: v for k, v in data.items() if v not in (None, "")})
+        except Exception as exc:
+            log.warning("intent parse failed, using offline reading: %s", exc)
+            return _mock_intent(message, budget_cents)
 
 
 # --- Image preprocessing ---------------------------------------------------
@@ -419,6 +856,10 @@ class CatalogIndex:
     def get(self, item_id: str) -> CatalogItem | None:
         return self._by_id.get(item_id)
 
+    def all_items(self) -> list[CatalogItem]:
+        """The seeded catalog. For consumers that scan rather than search."""
+        return list(self._by_id.values())
+
     def search(
         self,
         query: str,
@@ -471,6 +912,116 @@ class CatalogIndex:
             if item is not None:
                 results.append(item)
         return results
+
+    def search_by_detection(
+        self,
+        det: Detection,
+        limit: int | None = None,
+    ) -> ReverseSearchResult:
+        """Find catalog items that look like a detected object.
+
+        The bridge between pixels and the index is the detection's caption:
+        the vision model describes the object in the same visual vocabulary
+        CatalogItem.embed_text uses, and both sides embed into one space. A
+        true image-embedding index (CLIP over the product shots) would match
+        silhouette and texture directly and is the obvious upgrade, but it
+        needs a second vector per item and a GPU-backed embedder; this gets
+        most of the value from providers that are already configured.
+
+        Filtered by role when we recognise one, because a bookshelf should not
+        come back as a sofa - and unfiltered when we do not, so an object
+        outside our catalog can still surface its nearest relatives.
+        """
+        if not self._seeded:
+            raise RuntimeError("CatalogIndex.seed() must run before search()")
+
+        limit = limit or config.REVERSE_SEARCH_LIMIT
+        # Without a caption there is nothing to match on: the label alone
+        # ("sofa") describes every sofa we sell equally well, so ranking on it
+        # would return an arbitrary five and dress them up as an answer.
+        if not det.caption:
+            return ReverseSearchResult(detection=det, matches=[], confident=False)
+
+        must: list[FieldCondition] = [
+            FieldCondition(key="in_stock", match=MatchValue(value=True))
+        ]
+        if det.role is not None:
+            must.append(
+                FieldCondition(key="role", match=MatchValue(value=det.role.value))
+            )
+
+        # The label is prepended so the object's category carries weight even
+        # when the caption is all adjectives.
+        query = f"{det.label}. {det.caption}"
+        try:
+            response = self.client.query_points(
+                collection_name=config.COLLECTION_NAME,
+                query=self.embedder.embed([query])[0],
+                query_filter=Filter(must=must),
+                limit=limit,
+                with_payload=True,
+            )
+        except Exception as exc:
+            log.warning("reverse search failed for %s: %s", det.label, exc)
+            return ReverseSearchResult(detection=det, matches=[], confident=False)
+
+        matches: list[DetectedMatch] = []
+        for point in response.points:
+            item = self._by_id.get((point.payload or {}).get("item_id") or "")
+            if item is None:
+                continue
+            matches.append(
+                DetectedMatch(
+                    item_id=item.id,
+                    title=item.title,
+                    merchant=item.merchant,
+                    price_cents=item.price_cents,
+                    currency=item.currency,
+                    image_url=item.image_url,
+                    # Cosine over normalized vectors is [-1,1]; the model field
+                    # is [0,1] and a negative score means "unrelated" anyway.
+                    score=max(0.0, min(float(point.score or 0.0), 1.0)),
+                )
+            )
+
+        return ReverseSearchResult(
+            detection=det,
+            matches=matches,
+            confident=self._is_confident(det, matches),
+        )
+
+    def _is_confident(
+        self, det: Detection, matches: list[DetectedMatch]
+    ) -> bool:
+        """Whether the top match is an identification or just a nearest neighbour.
+
+        Score alone decides this, and one alternative is worth ruling out
+        explicitly because it looks more principled than it is: requiring the
+        top match to beat the runner-up by some margin. Measured against this
+        catalog, margin does not separate the two cases - true matches lead by
+        0.01-0.07 and unrelated ones by 0.00-0.02, overlapping ranges. Worse,
+        it inverts on the clearest evidence: the catalog stocks the same sofa
+        in several finishes, so recognising a LANDSKRONA produces near-tied
+        top scores and a margin test reads that as uncertainty. Absolute score
+        has no such failure, separating 0.73-0.83 from 0.20-0.41.
+        """
+        # The hash embedder shares no semantic space with the catalog prose -
+        # "boucle" and "bouclé" land in unrelated buckets - so its scores are
+        # not comparable to this threshold and must never read as confident.
+        if not matches or self.embedder.source != "openai":
+            return False
+        # An unrecognised role means the search ran unfiltered across the whole
+        # catalog. The nearest sofa to a bookshelf is still a sofa, and calling
+        # that an identification is exactly the overclaim this flag prevents.
+        if det.role is None:
+            return False
+        return matches[0].score >= config.REVERSE_SEARCH_MIN_SCORE
+
+    def identify_room(
+        self, detections: list[Detection], limit: int | None = None
+    ) -> list[ReverseSearchResult]:
+        """Reverse-search every detected object in one photo."""
+        return [self.search_by_detection(d, limit=limit) for d in detections]
 
 
 if __name__ == "__main__":

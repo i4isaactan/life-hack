@@ -7,6 +7,7 @@ than built. It is documented in README.md and mirrored by test_client.html.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import secrets
@@ -21,13 +22,20 @@ from fastapi.responses import StreamingResponse
 from . import config
 from .agent import GraphState, build_graph
 from .models import (
+    AuthorizationReceipt,
+    Detection,
+    AuthorizeRequest,
     Cart,
     CartLine,
     ChatMessage,
     CheckoutRequest,
     CheckoutResult,
+    DimensionSource,
     MerchantGroup,
     Opening,
+    PaymentIntent,
+    PaymentIntentRequest,
+    PaymentMethod,
     RenderFailure,
     RenderRequest,
     RenderResult,
@@ -35,14 +43,23 @@ from .models import (
     LayoutResult,
     RoomAnalysis,
     SwapRequest,
+    VerificationChallenge,
+    VerifyRequest,
 )
-from .rag_engine import CatalogIndex, VisionProvider, prepare_image
+from . import payments
+from .rag_engine import (
+    CatalogIndex,
+    DetectionProvider,
+    IntentProvider,
+    VisionProvider,
+    prepare_image,
+)
 from .render_engine import RenderProvider, render_layout, render_room
 from .solver import LayoutSolver
 from .seed_data import SEED_ITEMS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("roomcrafter")
+log = logging.getLogger("roomhack")
 
 # Populated in the lifespan handler. Seeding at import would run twice under
 # uvicorn --reload and rebuild the in-memory collection needlessly.
@@ -57,6 +74,11 @@ SESSIONS: dict[str, list[ChatMessage]] = {}
 # dimensions on one turn and door positions on the next.
 MEASUREMENTS: dict[str, dict[str, object]] = {}
 
+# Conversational preferences that accumulate across turns: budget and aesthetic
+# as last stated, items the user rejected, roles they dropped, size ceilings.
+# Separate from MEASUREMENTS because these are taste, not facts about the room.
+PREFERENCES: dict[str, dict[str, object]] = {}
+
 # What /api/render needs from the chat turn that produced the design: the photo
 # to paint into, the analysed room, and the solved layout. Rendering is a
 # separate request because it takes tens of seconds per item and must not hold
@@ -70,12 +92,42 @@ async def lifespan(app: FastAPI):
     count = index.seed()
     vision = VisionProvider()
     renderer = RenderProvider()
+    detector = DetectionProvider()
+    # Constructed here rather than inside build_graph so its provider status is
+    # observable on /api/health; the graph is handed the same instance.
+    intent = IntentProvider()
     STATE["index"] = index
     STATE["vision"] = vision
     STATE["renderer"] = renderer
-    STATE["graph"] = build_graph(index, vision)
+    STATE["intent"] = intent
+    STATE["detector"] = detector
+    STATE["graph"] = build_graph(index, vision, intent, detector)
     mode = "OpenAI" if config.HAS_OPENAI else "offline mock"
     log.info("catalog seeded with %d items | providers: %s", count, mode)
+    # Per-subsystem, so a partial fallback is visible at boot rather than
+    # showing up later as a mysteriously generic design.
+    log.info(
+        "vision: %s | intent: %s | embeddings: %s | detection: %s",
+        vision.source,
+        intent.source,
+        index.embedder.source,
+        detector.source,
+    )
+    if config.HAS_OPENAI:
+        degraded = [
+            name
+            for name, provider in (
+                ("vision", vision.source),
+                ("intent", intent.source),
+                ("embeddings", index.embedder.source),
+            )
+            if provider != "openai"
+        ]
+        if degraded:
+            log.warning(
+                "OPENAI_API_KEY is set but these fell back to offline: %s",
+                ", ".join(degraded),
+            )
     log.info(
         "renderer: %s | per-item: %s | compose: %s",
         renderer.source,
@@ -94,7 +146,7 @@ async def lifespan(app: FastAPI):
     RENDER_CONTEXT.clear()
 
 
-app = FastAPI(title="RoomCrafter AI", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Room Hack", version="1.0.0", lifespan=lifespan)
 
 # Credentials stay off, which is what permits this explicit origin list.
 # "null" covers test_client.html opened directly from disk over file://.
@@ -107,6 +159,53 @@ app.add_middleware(
 )
 
 
+# --- Outbound image URLs ---------------------------------------------------
+# Catalog image_urls are IKEA's own https:// product photos, which a browser
+# loads directly, so nothing needs rewriting or re-hosting. This hook stays as
+# the single place an outbound image_url is normalised, because renders arrive
+# as data: URIs and any future local imagery would need mapping to a route
+# rather than leaking a filesystem path to the client.
+
+
+def _image_key(image_b64: str) -> str:
+    """A short content hash, used to tell whether a photo is the same one.
+
+    Hashing the base64 rather than storing it twice keeps the session dict
+    small; a collision would only mean reusing detections for a different
+    photo, which blake2b at this width makes irrelevant.
+    """
+    return hashlib.blake2b(image_b64.encode(), digest_size=16).hexdigest()
+
+
+def _http_image_url(url: str) -> str:
+    """An image_url the browser can load, or "" if it could not be made one."""
+    if not isinstance(url, str):
+        return ""
+    if url.startswith(("http://", "https://", "data:", "/assets/")):
+        return url
+    # A file:// path would 404 in the browser and leak a local path in the
+    # payload, so it is dropped rather than sent. Clients already handle a
+    # missing image; they cannot handle a broken one.
+    log.warning("dropping non-browser-loadable image_url: %s", url[:80])
+    return ""
+
+
+def _rewrite_image_urls(payload: object) -> object:
+    """Recursively normalise every image_url in an outbound SSE/JSON payload."""
+    if isinstance(payload, dict):
+        return {
+            key: (
+                _http_image_url(value)
+                if key == "image_url" and isinstance(value, str)
+                else _rewrite_image_urls(value)
+            )
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_rewrite_image_urls(entry) for entry in payload]
+    return payload
+
+
 # --- SSE framing -----------------------------------------------------------
 
 
@@ -116,7 +215,9 @@ def sse_frame(event: str, data: dict) -> str:
     Separators are compact and the JSON must stay on a single line: a newline
     inside a data: field silently truncates the frame at the client.
     """
-    payload = json.dumps(data, separators=(",", ":"), default=str)
+    payload = json.dumps(
+        _rewrite_image_urls(data), separators=(",", ":"), default=str
+    )
     return f"event: {event}\ndata: {payload}\n\n"
 
 
@@ -135,6 +236,10 @@ async def chat(
     # otherwise withholds rather than guessing at.
     room_width_cm: float | None = Form(None),
     room_depth_cm: float | None = Form(None),
+    # "Your estimate looks right." Promotes the room to CONFIRMED, which is
+    # enough to release wall-hugging pieces without demanding a tape measure.
+    # Send alone to accept the proposal as-is, or with edited dimensions.
+    confirm_dimensions: bool = Form(False),
     irregular: bool = Form(False),
     # JSON array of openings, e.g.
     # [{"kind":"door","wall":"north","offset_cm":10,"width_cm":80,"swing_cm":80}]
@@ -181,13 +286,36 @@ async def chat(
     if room_width_cm and room_depth_cm:
         if room_width_cm <= 0 or room_depth_cm <= 0:
             raise HTTPException(400, "room dimensions must be positive")
+        # confirm_dimensions marks "I looked at your estimate and it's about
+        # right" - the same numbers, but now vouched for. Typed-in numbers
+        # without that flag are a real measurement.
         measurements = {
             "width_cm": room_width_cm,
             "depth_cm": room_depth_cm,
-            "measured": True,
+            "dimension_source": (
+                DimensionSource.CONFIRMED
+                if confirm_dimensions
+                else DimensionSource.MEASURED
+            ),
             "irregular": irregular,
             "openings": parsed_openings,
         }
+    elif confirm_dimensions:
+        # Accepting the estimate without editing it: no numbers come back, so
+        # promote whatever the last turn proposed.
+        prior_dims = MEASUREMENTS.get(sid) or {}
+        proposed = PREFERENCES.get(sid, {}).get("proposed_dimensions")
+        if proposed:
+            measurements = {
+                **{k: v for k, v in proposed.items() if k in ("width_cm", "depth_cm")},
+                "dimension_source": DimensionSource.CONFIRMED,
+                "irregular": irregular or bool(prior_dims.get("irregular")),
+                "openings": parsed_openings or prior_dims.get("openings") or [],
+            }
+        else:
+            raise HTTPException(
+                409, "nothing to confirm - no dimensions have been proposed yet"
+            )
     elif parsed_openings or irregular:
         # Openings without dimensions still refine the room we estimated.
         measurements = {"irregular": irregular, "openings": parsed_openings}
@@ -200,13 +328,56 @@ async def chat(
     history.append(ChatMessage(role="user", content=message))
     del history[: -config.MAX_HISTORY_MESSAGES]
 
+    # Preferences carry forward. The form fields are authoritative only when
+    # the caller actually sets them: a follow-up turn that omits budget or
+    # aesthetic should keep what the conversation established, not silently
+    # reset to the default.
+    prefs = PREFERENCES.setdefault(sid, {})
+    if budget is not None and budget > 0:
+        prefs["budget_cents"] = budget_cents
+    if aesthetic:
+        prefs["aesthetic"] = aesthetic
+
+    # The previous turn's design, so parse_intent can resolve "cheaper than
+    # what" and "another one" rather than "which one".
+    prior_ctx = RENDER_CONTEXT.get(sid) or {}
+    prior_ids = prior_ctx.get("selected_ids") or []
+    index = STATE.get("index")
+    prior_items = [
+        it
+        for it in (index.get(i) for i in prior_ids)  # type: ignore[attr-defined]
+        if it is not None
+    ]
+    prior_layout_raw = prior_ctx.get("layout")
+    prior_layout = (
+        LayoutResult(**prior_layout_raw)
+        if isinstance(prior_layout_raw, dict)
+        else prior_layout_raw
+    )
+
+    # Detections cached from a previous turn on this session, reusable only
+    # while the photo they describe is still the current one. Detection is a
+    # second vision call, and a follow-up like "make it cheaper" re-runs the
+    # whole graph over an unchanged photo - paying for it again buys nothing.
+    cached_detections = None
+    if image_b64 and prior_ctx.get("detected_for") == _image_key(image_b64):
+        raw_dets = prior_ctx.get("detections")
+        if isinstance(raw_dets, list):
+            cached_detections = [Detection(**d) for d in raw_dets]
+
     state: GraphState = {
         "messages": list(history),
         "image_b64": image_b64,
-        "budget_cents": budget_cents,
-        "aesthetic": aesthetic,
+        "detections": cached_detections,
+        "budget_cents": prefs.get("budget_cents", budget_cents),
+        "aesthetic": prefs.get("aesthetic", aesthetic),
         "prompt": message,
         "measurements": MEASUREMENTS.get(sid) or None,
+        "selected": prior_items,
+        "layout": prior_layout,
+        "rejected_ids": list(prefs.get("rejected_ids") or []),
+        "excluded_roles": list(prefs.get("excluded_roles") or []),
+        "size_caps": dict(prefs.get("size_caps") or {}),
     }
 
     # The photo is kept for rendering. A later turn with no new photo reuses
@@ -262,7 +433,15 @@ async def chat(
                 # "custom" yields writer output, not state, and these are the
                 # same objects the client is being told about.
                 elif kind == "room_analysis":
-                    ctx.setdefault(sid, {})["room"] = payload.get("room")
+                    room_payload = payload.get("room") or {}
+                    ctx.setdefault(sid, {})["room"] = room_payload
+                    # Cache the detections against the photo they came from, so
+                    # a follow-up turn over the same image skips the second
+                    # vision call. Keyed by content, not by session, because a
+                    # new photo must invalidate them.
+                    if image_b64:
+                        ctx[sid]["detections"] = room_payload.get("detections") or []
+                        ctx[sid]["detected_for"] = _image_key(image_b64)
                 elif kind == "layout_update":
                     ctx.setdefault(sid, {})["layout"] = payload.get("layout")
                 elif kind == "alternatives":
@@ -274,6 +453,45 @@ async def chat(
                         line["item_id"] for line in payload.get("cart", {}).get("lines", [])
                     ]
                     ctx.setdefault(sid, {})["budget_cents"] = payload.get("budget_cents")
+                elif kind == "dimension_proposal":
+                    # Remember what we offered, so a bare confirm_dimensions on
+                    # the next turn can promote these numbers without the client
+                    # having to echo them back.
+                    prefs["proposed_dimensions"] = payload.get("proposal") or {}
+                elif kind == "intent":
+                    # Persist what the turn established so the next one inherits
+                    # it: a rejected sofa stays rejected, a lowered budget stays
+                    # lowered, without the client having to resend either.
+                    parsed = payload.get("intent") or {}
+                    if parsed.get("budget_cents"):
+                        prefs["budget_cents"] = parsed["budget_cents"]
+                    if parsed.get("aesthetic"):
+                        prefs["aesthetic"] = parsed["aesthetic"]
+                    if parsed.get("reject_item_ids"):
+                        prefs["rejected_ids"] = sorted(
+                            {*(prefs.get("rejected_ids") or []), *parsed["reject_item_ids"]}
+                        )
+                    if parsed.get("remove_roles"):
+                        prefs["excluded_roles"] = sorted(
+                            {*(prefs.get("excluded_roles") or []), *parsed["remove_roles"]}
+                        )
+                    if parsed.get("max_width_cm"):
+                        prefs["size_caps"] = {
+                            **(prefs.get("size_caps") or {}),
+                            **parsed["max_width_cm"],
+                        }
+                    # A reroll rejects the item currently in that role, so the
+                    # next search cannot return the same piece.
+                    if parsed.get("reroll_roles"):
+                        rolled = {
+                            it.id
+                            for it in prior_items
+                            if it.role.value in parsed["reroll_roles"]
+                        }
+                        if rolled:
+                            prefs["rejected_ids"] = sorted(
+                                {*(prefs.get("rejected_ids") or []), *rolled}
+                            )
                 yield sse_frame(kind, payload)
         finally:
             task.cancel()
@@ -707,7 +925,9 @@ async def checkout_simulate(req: CheckoutRequest) -> CheckoutResult:
                 role=item.role,
                 price_cents=item.price_cents,
                 checkout_url=item.checkout_url,
-                image_url=item.image_url,
+                # Browser-loadable; this response is rendered directly by the
+                # client rather than passing through sse_frame.
+                image_url=_http_image_url(item.image_url),
             )
         )
 
@@ -732,6 +952,143 @@ async def checkout_simulate(req: CheckoutRequest) -> CheckoutResult:
     )
 
 
+# --- Payment (simulated Visa rail) -----------------------------------------
+#
+# The authorization model, in one line: the agent may PRICE a purchase; only
+# the user may AUTHORIZE one. Everything below enforces that split.
+#
+#   GET  /api/payment/methods    the user's stored cards
+#   POST /api/payment/intent     agent prices it -> preview, charges nothing
+#   POST /api/payment/verify/start   issue a step-up challenge
+#   POST /api/payment/verify     answer it
+#   POST /api/payment/authorize  the user releases the charge
+#   POST /api/payment/cancel     the user declines
+#   GET  /api/payment/intent/{id}  re-read a preview
+
+
+def _payment_error(exc: payments.PaymentError) -> HTTPException:
+    return HTTPException(exc.status, exc.detail)
+
+
+@app.get("/api/payment/methods", response_model=list[PaymentMethod])
+async def payment_methods() -> list[PaymentMethod]:
+    """The cards on file. Fictional; only last four digits ever exist."""
+    return payments.wallet()
+
+
+@app.post("/api/payment/intent", response_model=PaymentIntent)
+async def payment_intent(req: PaymentIntentRequest) -> PaymentIntent:
+    """Price a purchase into a preview. NOTHING IS CHARGED HERE.
+
+    This is the boundary of the agent's authority. It resolves every item
+    against the live catalog rather than trusting prices the client sends,
+    because a client-supplied total is a total the user could be shown while a
+    different one is charged.
+    """
+    index = STATE.get("index")
+    if index is None:  # pragma: no cover
+        raise HTTPException(503, "server still starting")
+    if not req.item_ids:
+        raise HTTPException(400, "no items to pay for")
+
+    lines: list[CartLine] = []
+    for item_id in req.item_ids:
+        item = index.get(item_id)  # type: ignore[attr-defined]
+        if item is None:
+            raise HTTPException(404, f"unknown item: {item_id}")
+        if not item.in_stock:
+            raise HTTPException(409, f"out of stock: {item.title}")
+        lines.append(
+            CartLine(
+                item_id=item.id,
+                name=item.title,
+                merchant=item.merchant,
+                role=item.role,
+                price_cents=item.price_cents,
+                checkout_url=item.checkout_url,
+                image_url=_http_image_url(item.image_url),
+            )
+        )
+
+    # The budget the design was actually solved against, so the preview can say
+    # whether this purchase honours the constraint the user set.
+    budget_cents = 0
+    if req.session_id:
+        prefs = PREFERENCES.get(req.session_id) or {}
+        budget_cents = int(prefs.get("budget_cents") or 0)
+
+    try:
+        return payments.create_intent(
+            lines,
+            session_id=req.session_id,
+            budget_cents=budget_cents,
+            payment_method_ids=req.payment_method_ids,
+            initiated_by="agent",
+        )
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+@app.get("/api/payment/intent/{intent_id}", response_model=PaymentIntent)
+async def payment_intent_read(intent_id: str) -> PaymentIntent:
+    try:
+        return payments.get_intent(intent_id)
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+@app.post("/api/payment/verify/start", response_model=VerificationChallenge)
+async def payment_verify_start(body: dict) -> VerificationChallenge:
+    """Issue a step-up challenge, in the shape of a 3-D Secure prompt."""
+    intent_id = str(body.get("intent_id") or "")
+    if not intent_id:
+        raise HTTPException(400, "intent_id required")
+    try:
+        return payments.start_verification(intent_id)
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+@app.post("/api/payment/verify", response_model=PaymentIntent)
+async def payment_verify(req: VerifyRequest) -> PaymentIntent:
+    """Answer a step-up challenge. Proves a human is present."""
+    try:
+        return payments.verify(req.intent_id, req.challenge_id, req.code)
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+@app.post("/api/payment/authorize", response_model=AuthorizationReceipt)
+async def payment_authorize(req: AuthorizeRequest) -> AuthorizationReceipt:
+    """The user releases the charge. The only endpoint that moves money.
+
+    Refuses if the total has drifted from what the user reviewed, if step-up
+    was required and not completed, or if the preview has expired. Replaying
+    an idempotency key returns the original receipt rather than charging twice.
+    """
+    if not req.idempotency_key:
+        raise HTTPException(400, "idempotency_key required")
+    try:
+        return payments.authorize(
+            req.intent_id, req.idempotency_key, req.confirmed_total_cents
+        )
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+@app.post("/api/payment/cancel", response_model=PaymentIntent)
+async def payment_cancel(body: dict) -> PaymentIntent:
+    """Decline the purchase. Always available while nothing is charged."""
+    intent_id = str(body.get("intent_id") or "")
+    if not intent_id:
+        raise HTTPException(400, "intent_id required")
+    try:
+        return payments.cancel_intent(intent_id)
+    except payments.PaymentError as exc:
+        raise _payment_error(exc) from exc
+
+
+
 # --- Health ----------------------------------------------------------------
 
 
@@ -739,17 +1096,98 @@ async def checkout_simulate(req: CheckoutRequest) -> CheckoutResult:
 async def health() -> dict:
     index = STATE.get("index")
     renderer = STATE.get("renderer")
+    vision = STATE.get("vision")
     return {
         "status": "ok" if index is not None else "starting",
         "providers": "openai" if config.HAS_OPENAI else "mock",
         "offline_mode": not config.HAS_OPENAI,
         "catalog_seeded": index is not None,
+        # Broken out per provider, because "providers: openai" only says a key
+        # was present - it does not say which subsystems actually built a
+        # client. A single rolled-up flag sends you to the wrong place when one
+        # of them silently falls back.
+        "vision": {
+            "source": getattr(vision, "source", "unavailable"),
+            "model": config.VISION_MODEL if config.HAS_OPENAI else None,
+            # Vision only runs when a photo is supplied. Without one the room
+            # comes back with source "default", which is not a fallback.
+            "requires_photo": True,
+        },
+        "intent": {
+            "source": getattr(STATE.get("intent"), "source", "unavailable"),
+            "model": config.INTENT_MODEL if config.HAS_OPENAI else None,
+        },
+        "embeddings": {
+            "source": getattr(getattr(index, "embedder", None), "source", "unavailable"),
+            "model": config.EMBEDDING_MODEL if config.HAS_OPENAI else None,
+        },
         "renderer": {
             "source": getattr(renderer, "source", "unavailable"),
             "method": getattr(getattr(renderer, "method", None), "value", "unavailable"),
             "can_compose": bool(getattr(renderer, "can_compose", False)),
             "compose_model": config.GEMINI_IMAGE_MODEL if config.HAS_GEMINI else None,
         },
+    }
+
+
+@app.post("/api/detect")
+async def detect(
+    image: UploadFile = File(...),
+    # Off by default: detection alone is fast and cheap, while matching costs
+    # one embedding call per object found.
+    match: bool = Form(False),
+    limit: int = Form(config.REVERSE_SEARCH_LIMIT),
+) -> dict:
+    """Identify the furniture in a room photo, and optionally price it.
+
+    Two things in one call because they answer one question: "what is in this
+    room, and can I buy it here?" The boxes are normalized [0,1] so a client
+    can draw them over the photo at any display size.
+
+    Reverse search is a *suggestion*, not an identification: see `confident` on
+    each result for whether the top match actually resembles the object or is
+    merely the closest thing in a small catalog.
+    """
+    index = STATE.get("index")
+    detector = STATE.get("detector")
+    if index is None or detector is None:  # pragma: no cover - pre-lifespan
+        raise HTTPException(503, "server still starting")
+
+    raw = await image.read()
+    if len(raw) > config.MAX_IMAGE_BYTES:
+        raise HTTPException(
+            413, f"image exceeds {config.MAX_IMAGE_BYTES // (1024 * 1024)}MB limit"
+        )
+    if not raw:
+        raise HTTPException(400, "empty image file")
+    image_b64 = prepare_image(raw)
+    if image_b64 is None:
+        raise HTTPException(400, "could not decode image file")
+
+    # 503 rather than an empty list: "we cannot look" and "we looked and found
+    # nothing" are different answers, and a client that conflated them would
+    # tell the user their room is empty.
+    if not detector.available:  # type: ignore[attr-defined]
+        raise HTTPException(
+            503,
+            "furniture detection needs OPENAI_API_KEY; the server is running "
+            "with offline providers",
+        )
+
+    found = await asyncio.to_thread(detector.detect, image_b64)  # type: ignore[attr-defined]
+    if not match:
+        return {
+            "count": len(found),
+            "detections": [d.model_dump(mode="json") for d in found],
+        }
+
+    limit = max(1, min(limit, 20))
+    results = await asyncio.to_thread(index.identify_room, found, limit)  # type: ignore[attr-defined]
+    return {
+        "count": len(results),
+        "results": [
+            _rewrite_image_urls(r.model_dump(mode="json")) for r in results
+        ],
     }
 
 
@@ -760,5 +1198,7 @@ async def catalog(limit: int = 100) -> dict:
 
     return {
         "count": len(SEED_ITEMS),
-        "items": [i.model_dump(mode="json") for i in SEED_ITEMS[:limit]],
+        "items": [
+            _rewrite_image_urls(i.model_dump(mode="json")) for i in SEED_ITEMS[:limit]
+        ],
     }

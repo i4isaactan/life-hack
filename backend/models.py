@@ -24,7 +24,6 @@ class Role(str, Enum):
     SOFA = "sofa"
     COFFEE_TABLE = "coffee_table"
     ACCENT_CHAIR = "accent_chair"
-    TV_UNIT = "tv_unit"
     FLOOR_LAMP = "floor_lamp"
 
 
@@ -41,7 +40,6 @@ PLACEMENT_ORDER: list[Role] = [
     Role.RUG,
     Role.SOFA,
     Role.COFFEE_TABLE,
-    Role.TV_UNIT,
     Role.ACCENT_CHAIR,
     Role.FLOOR_LAMP,
 ]
@@ -72,10 +70,9 @@ ROLE_PRECISION: dict[Role, Precision] = {
     Role.COFFEE_TABLE: Precision.APPROXIMATE,
     Role.ACCENT_CHAIR: Precision.APPROXIMATE,
     Role.FLOOR_LAMP: Precision.APPROXIMATE,
-    # Wall-hugging pieces: a gap behind them reads as a mistake, and they are
-    # the pieces most likely to foul a door swing or a window.
+    # Wall-hugging: a gap behind a sofa reads as a mistake, and it is the piece
+    # most likely to foul a door swing or a window.
     Role.SOFA: Precision.EXACT,
-    Role.TV_UNIT: Precision.EXACT,
 }
 
 
@@ -105,6 +102,41 @@ class MeasurementRequest(BaseModel):
     field: str
     question: str
     affects: list[str] = Field(default_factory=list)
+
+
+class DimensionSource(str, Enum):
+    """Where the room's dimensions came from, and how far to trust them.
+
+    The middle state is the point. Asking a user to measure their room before
+    anything happens is friction most will meet by inventing a number, which is
+    worse than an estimate because it is trusted just as absolutely. Showing
+    them the AI's estimate and letting them accept it costs one tap, and people
+    are far better at spotting a wrong number than producing a right one.
+    """
+
+    # Read from a photo, unseen by anyone. Cannot support wall-hugging pieces.
+    ESTIMATED = "estimated"
+    # An estimate the user looked at and accepted. Good enough to build on.
+    CONFIRMED = "confirmed"
+    # Numbers the user supplied. Tightest tolerances.
+    MEASURED = "measured"
+
+
+class DimensionProposal(BaseModel):
+    """An estimate offered back to the user for confirmation.
+
+    Sent as its own event so a client can render an editable prefilled field
+    rather than a blank one - "is this about right?" instead of "measure your
+    room". Accepting promotes the room to CONFIRMED and releases the pieces
+    the solver is holding back.
+    """
+
+    width_cm: float = Field(gt=0)
+    depth_cm: float = Field(gt=0)
+    source: DimensionSource = DimensionSource.ESTIMATED
+    # Roles currently withheld that accepting these numbers would release.
+    unlocks: list[str] = Field(default_factory=list)
+    question: str = ""
 
 
 # --- Camera ----------------------------------------------------------------
@@ -180,11 +212,17 @@ class Detection(BaseModel):
     """An existing piece of furniture found in the user's photo.
 
     Boxes are normalized [0,1] image coordinates, x1/y1 top-left. Detections
-    drive two things: what to erase before compositing, and a prior on what
-    the user already owns.
+    drive three things: what to erase before compositing, a prior on what the
+    user already owns, and the crop that reverse-search matches against the
+    catalog.
     """
 
-    role: Role
+    # None for furniture we recognise but do not sell - a bookshelf, a bed.
+    # Worth keeping: it is still a real object in the room, it still tells us
+    # about the user's taste, and dropping it would make the detection list
+    # look wrong to anyone comparing it against their own photo. Only a role
+    # that is not None can be erased or replaced.
+    role: Role | None = None
     label: str
     score: float = Field(ge=0, le=1)
     x1: float
@@ -193,6 +231,65 @@ class Detection(BaseModel):
     y2: float
     # Populated once segmentation runs; a base64 PNG of the binary mask.
     mask_b64: str | None = None
+
+    # A visual description of THIS instance - "low-slung two-seat sofa in
+    # oatmeal boucle, tapered oak legs" - written to be embedded against
+    # CatalogItem.embed_text. Distinct from `label`, which is just the class
+    # name the detector emitted and carries no appearance at all.
+    caption: str = ""
+
+    @property
+    def area(self) -> float:
+        """Fraction of the photo this box covers.
+
+        Used to rank detections: the largest piece is the one a user means by
+        "the sofa", and a tiny box is usually a reflection or a cushion.
+        """
+        return max(0.0, self.x2 - self.x1) * max(0.0, self.y2 - self.y1)
+
+    def crop_box(self, width: int, height: int, pad: float = 0.04) -> tuple[int, int, int, int]:
+        """Pixel crop box for this detection, padded and clamped to the image.
+
+        A little padding matters for matching: a box cut exactly to the object
+        loses the legs and the silhouette edge, which are most of what
+        distinguishes one armchair from another.
+        """
+        px, py = pad * (self.x2 - self.x1), pad * (self.y2 - self.y1)
+        left = int(max(0.0, self.x1 - px) * width)
+        top = int(max(0.0, self.y1 - py) * height)
+        right = int(min(1.0, self.x2 + px) * width)
+        bottom = int(min(1.0, self.y2 + py) * height)
+        # A degenerate box would make PIL raise; give it at least one pixel.
+        return (left, top, max(left + 1, right), max(top + 1, bottom))
+
+
+class DetectedMatch(BaseModel):
+    """One catalog item proposed as the identity of a detected object."""
+
+    item_id: str
+    title: str
+    merchant: str
+    price_cents: int
+    currency: str = "SGD"
+    image_url: str
+    # Cosine similarity against the detection's caption, 0-1. This is a
+    # ranking signal, not a probability that the item IS the object.
+    score: float = Field(ge=0, le=1)
+
+
+class ReverseSearchResult(BaseModel):
+    """What one detected object matched to in the catalog.
+
+    `confident` is the honest flag a client should gate its wording on: a
+    match list is always returned when the role has any stock at all, because
+    the nearest neighbour of anything is still something. Only `confident`
+    distinguishes "this looks like the LANDSKRONA" from "we found nothing
+    like it and these are just the closest sofas we sell".
+    """
+
+    detection: Detection
+    matches: list[DetectedMatch] = Field(default_factory=list)
+    confident: bool = False
 
 
 # --- Render ----------------------------------------------------------------
@@ -310,7 +407,7 @@ class Dimensions(BaseModel):
 
 
 class CatalogItem(BaseModel):
-    """One purchasable item. Merchants are fictional; see seed_data.py."""
+    """One purchasable item. See seed_data.py for where the catalog comes from."""
 
     id: str
     merchant: str
@@ -327,17 +424,54 @@ class CatalogItem(BaseModel):
     checkout_url: str
     in_stock: bool = True
 
+    # The vendor's own prose. This is the strongest semantic signal available -
+    # "light, airy design with high legs and slim lines" is what someone asking
+    # for an airy room is actually searching for, and no amount of structured
+    # tagging reproduces it. Empty when the source has none.
+    description: str = ""
+    # The visible upholstery or finish, e.g. "Gunnared light green". Distinct
+    # from `materials`, which is a full bill of materials listing the foam and
+    # fibreboard inside the piece as well as the fabric on it.
+    finish: str = ""
+    seating_capacity: int | None = None
+    # IKEA's product line, e.g. "LANDSKRONA" or "IKEA PS 2026". Two pieces
+    # sharing one are the same designed range - matching frame, fabric and
+    # proportions - which is the strongest "these go together" signal the
+    # catalog actually contains.
+    series: str = ""
+
     def embed_text(self) -> str:
-        """The text embedded into the vector index for this item."""
+        """The text embedded into the vector index for this item.
+
+        Ordered most- to least-discriminating. Embeddings weight the whole
+        string, so filler dilutes the signal: a construction bill of materials
+        ("polypropylene, polyurethane, fibreboard") describes the inside of a
+        sofa and matches nothing anyone would ask for, which is why `materials`
+        is capped and comes last.
+        """
         d = self.dimensions
-        return (
-            f"{self.title}. {self.role.value.replace('_', ' ')}. "
-            f"Style: {', '.join(self.style_tags)}. "
-            f"Color: {self.primary_color}. "
-            f"Materials: {', '.join(self.materials)}. "
-            f"Dimensions {d.width_cm:.0f}x{d.depth_cm:.0f}x{d.height_cm:.0f} cm. "
-            f"Sold by {self.merchant}."
+        parts = [
+            self.title,
+            self.role.value.replace("_", " "),
+        ]
+        if self.description:
+            parts.append(self.description)
+        if self.style_tags:
+            parts.append(f"Style: {', '.join(self.style_tags)}")
+        parts.append(f"Color: {self.primary_color}")
+        if self.finish:
+            parts.append(f"Upholstery: {self.finish}")
+        if self.seating_capacity:
+            parts.append(f"Seats {self.seating_capacity}")
+        if self.materials:
+            parts.append(f"Materials: {', '.join(self.materials[:4])}")
+        parts.append(
+            f"Dimensions {d.width_cm:.0f}x{d.depth_cm:.0f}x{d.height_cm:.0f} cm"
         )
+        parts.append(f"Sold by {self.merchant}")
+        # Parts are joined with ". ", so a part that already ends in a full
+        # stop (vendor prose usually does) would produce "..".
+        return ". ".join(x.rstrip(" .") for x in parts if x.strip()) + "."
 
 
 # --- Alternatives ----------------------------------------------------------
@@ -382,6 +516,136 @@ class RoleOptions(BaseModel):
     alternatives: list[Alternative] = Field(default_factory=list)
 
 
+# --- Conversational intent -------------------------------------------------
+
+
+class IntentKind(str, Enum):
+    """What the user is actually asking for this turn.
+
+    Without this the message text only ever reached the embedding query, where
+    "make it cheaper" is just three tokens with no more force than "oak" - the
+    design came back at the same budget. Parsing intent is what turns a search
+    box into a conversation.
+    """
+
+    # Design or redesign the room from scratch.
+    DESIGN = "design"
+    # Adjust the existing design: cheaper, warmer, bigger sofa.
+    REFINE = "refine"
+    # Replace one role's item, optionally with a stated preference.
+    REPLACE = "replace"
+    # Explain a choice already made. Answered from state, no re-solve.
+    EXPLAIN = "explain"
+    # Supply room facts (dimensions, doors) without changing the brief.
+    MEASURE = "measure"
+    # Anything else - greetings, off-topic. Answered without touching state.
+    CHITCHAT = "chitchat"
+
+
+class Intent(BaseModel):
+    """Structured reading of one user message, in the graph's own vocabulary.
+
+    Every field is optional and only set when the message actually says so, so
+    an unmentioned constraint carries forward from the session rather than
+    being reset to a default on each turn.
+    """
+
+    kind: IntentKind = IntentKind.DESIGN
+
+    # --- constraint updates ---
+    budget_cents: int | None = None
+    aesthetic: str | None = None
+    # Free-text flavour that should steer retrieval ("warmer", "less busy").
+    style_note: str | None = None
+
+    # --- targeted changes ---
+    # Roles the user wants re-picked, e.g. "show me a different rug".
+    reroll_roles: list[Role] = Field(default_factory=list)
+    # Items explicitly rejected; never re-offered this session.
+    reject_item_ids: list[str] = Field(default_factory=list)
+    # Roles to drop from the design entirely ("I don't need a rug").
+    remove_roles: list[Role] = Field(default_factory=list)
+    # Per-role size ceiling in cm, from "the sofa is too big".
+    max_width_cm: dict[str, float] = Field(default_factory=dict)
+
+    # --- explanation ---
+    explain_role: Role | None = None
+
+    # What to say back when no re-solve is needed (explain/chitchat).
+    reply: str = ""
+    # Why the parser read it this way, for debugging and for the client to show.
+    reasoning: str = ""
+
+
+# --- Bundles ---------------------------------------------------------------
+
+
+class BundleBasis(str, Enum):
+    """Why two pieces are suggested together.
+
+    NOTE ON WHAT IS ABSENT. There is no "customers also bought" here, because
+    the catalog carries no purchase, basket or view history - only product
+    attributes. Inventing co-purchase counts would present fabricated social
+    proof as real shopper behaviour, so every basis below is a property of the
+    products themselves, checkable against the catalog.
+    """
+
+    # Same IKEA product line: matching frame, fabric and proportions. The
+    # strongest signal the data actually contains.
+    SAME_SERIES = "same_series"
+    # Different lines that share style tags and sit in the same colour family.
+    STYLE_MATCH = "style_match"
+    # A role the design is missing, filled with something that fits the rest.
+    COMPLETES_ROOM = "completes_room"
+
+
+_BASIS_LABEL: dict[str, str] = {
+    "same_series": "Matching set",
+    "style_match": "Completes the look",
+    "completes_room": "Finishes the room",
+}
+
+
+class BundleItem(BaseModel):
+    """One piece inside a suggested bundle."""
+
+    item_id: str
+    name: str
+    role: Role
+    price_cents: int
+    image_url: str
+    swatch: str
+    series: str = ""
+    # False when this piece is already in the cart: a bundle shown against a
+    # design usually extends it rather than replacing it wholesale, and the
+    # client needs to know which rows are new spend.
+    is_new: bool = True
+
+
+class Bundle(BaseModel):
+    """A set of pieces suggested together, with the reason stated.
+
+    `reason` is user-facing and must describe the actual basis. A bundle whose
+    reason cannot be justified from the catalog should not be built.
+    """
+
+    id: str
+    basis: BundleBasis
+    label: str
+    reason: str
+    items: list[BundleItem]
+    # Total for the whole bundle, and for only the pieces not already owned.
+    total_cents: int
+    added_cents: int
+    currency: str = "SGD"
+    # Whether adding the new pieces keeps the design within budget.
+    affordable: bool = True
+    # Every piece physically fits the room alongside what is already placed.
+    # False bundles are still shown, flagged, because a user may be planning a
+    # different room - but they must never be presented as drop-in additions.
+    fits_room: bool = True
+
+
 class SwapRequest(BaseModel):
     """Replace one selected item with an alternative and re-solve.
 
@@ -412,14 +676,17 @@ class RoomAnalysis(BaseModel):
     flooring: str = "light oak"
     lighting: str = "natural, north-facing"
     notes: str = ""
-    # "openai" or "mock" — surfaced to the client so a demo can honestly show
-    # which path produced the analysis.
-    source: Literal["openai", "mock"] = "mock"
+    # Which path produced this analysis, surfaced so a client can show it
+    # honestly. "default" is the one worth distinguishing: it means no photo
+    # was supplied, so there was nothing to analyse - NOT that the vision
+    # provider is unavailable, which is what "mock" means. Conflating the two
+    # makes an ordinary no-photo turn look like a misconfiguration.
+    source: Literal["openai", "mock", "default"] = "default"
 
-    # How the dimensions were obtained. A photo estimate can be metres off, so
-    # it cannot support wall-hugging placement; a user-supplied or floor-plan
-    # measurement can. This is the gate on the EXACT precision tier.
-    measured: bool = False
+    # How the dimensions were obtained. This gates the EXACT precision tier:
+    # a photo estimate nobody has looked at can be metres off, and metre-scale
+    # error is the difference between a sofa fitting and not.
+    dimension_source: DimensionSource = DimensionSource.ESTIMATED
     # Known doors and windows. Empty means unknown, not "none" — an unknown
     # door is why a wall-hugging piece stays withheld.
     openings: list[Opening] = Field(default_factory=list)
@@ -431,6 +698,58 @@ class RoomAnalysis(BaseModel):
     # or when the vision model could not identify a floor quad - in which case
     # rendering is impossible and says so rather than guessing a projection.
     camera: CameraCalibration | None = None
+
+    # Furniture already in the photo. Empty means either no photo, or a photo
+    # nothing was found in - `source` is what distinguishes those. Populated at
+    # analysis time rather than at render time because what the user already
+    # owns is a retrieval signal, not just a list of pixels to erase.
+    detections: list[Detection] = Field(default_factory=list)
+
+    @property
+    def replaceable(self) -> list[Detection]:
+        """Detections that map onto a role we actually sell.
+
+        The rest stay in `detections` for context and for the client to show,
+        but nothing downstream can erase or replace them.
+        """
+        return [d for d in self.detections if d.role is not None]
+
+    @property
+    def existing_style(self) -> str:
+        """A style prior drawn from what is already in the room.
+
+        What someone already owns is a stronger signal for what they want than
+        any adjective they type, so this is folded into the retrieval query.
+        Captions are ordered biggest-object-first, because a sofa says more
+        about a room than a lamp does.
+        """
+        ranked = sorted(self.detections, key=lambda d: d.area, reverse=True)
+        return ". ".join(d.caption for d in ranked if d.caption)[:400]
+
+    @property
+    def measured(self) -> bool:
+        """Whether a human has vouched for these dimensions.
+
+        Kept as a property so existing callers read the same flag they always
+        did. The distinction that matters is not "typed by hand" versus
+        "estimated" - it is whether anyone has *looked*. An estimate the user
+        glanced at and accepted is trustworthy; an estimate nobody has seen is
+        the one that silently produces a wrong layout.
+        """
+        return self.dimension_source is not DimensionSource.ESTIMATED
+
+    @property
+    def dimension_tolerance_cm(self) -> float:
+        """How far these dimensions might be out.
+
+        Feeds placement tolerance: furniture positioned inside a room whose own
+        size is ±40cm cannot honestly claim ±5cm.
+        """
+        return {
+            DimensionSource.ESTIMATED: 60.0,
+            DimensionSource.CONFIRMED: 25.0,
+            DimensionSource.MEASURED: 5.0,
+        }[self.dimension_source]
 
     @property
     def supports_exact_placement(self) -> bool:
@@ -568,3 +887,239 @@ class CheckoutResult(BaseModel):
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
+
+
+# --- Payment (simulated Visa rail) -----------------------------------------
+#
+# Nothing below touches a real payment network. The shapes deliberately mirror
+# how a card transaction actually moves - intent, step-up challenge, per-
+# merchant authorization - because the point of this flow is to show a user
+# how an agent asks permission to spend their money, and a flow that skips the
+# steps a real one has would teach the wrong habit.
+#
+# The invariant the whole module is built around: the agent may ASSEMBLE a
+# purchase, but only a human may AUTHORIZE one. Every type here exists to keep
+# those two acts separate and legible.
+
+
+class CardNetwork(str, Enum):
+    VISA = "visa"
+    MASTERCARD = "mastercard"
+    AMEX = "amex"
+
+
+class PaymentMethod(BaseModel):
+    """A stored card, as the user would recognise it.
+
+    Only ever the last four digits. A demo that carried a full PAN around -
+    even a fake one - would be modelling the one thing real systems are built
+    to never do, and someone would eventually paste a real card into it.
+    """
+
+    id: str
+    network: CardNetwork = CardNetwork.VISA
+    last4: str = Field(min_length=4, max_length=4)
+    exp_month: int = Field(ge=1, le=12)
+    exp_year: int = Field(ge=2024)
+    holder: str
+    label: str = ""  # "Personal", "Household" - what the user calls it
+    is_default: bool = False
+    # Ceiling this card will authorize in one transaction without a step-up
+    # challenge. Below it the user still confirms; above it they must also
+    # prove they are present.
+    step_up_threshold_cents: int = 50_000
+
+    @property
+    def display(self) -> str:
+        return f"{self.network.value.title()} ···· {self.last4}"
+
+
+class RiskSignal(BaseModel):
+    """One reason this transaction is or is not routine.
+
+    Surfaced to the user rather than kept internal: "why am I being asked to
+    verify?" deserves an answer, and an agent that spends money without
+    explaining its own risk assessment is asking for blind trust.
+    """
+
+    code: Literal[
+        "amount_over_threshold",
+        "multi_merchant",
+        "new_merchant",
+        "over_budget",
+        "agent_initiated",
+        "routine",
+    ]
+    detail: str
+    # True when this signal is why a step-up challenge is required.
+    triggers_step_up: bool = False
+
+
+class MerchantCharge(BaseModel):
+    """What one merchant will charge, on which card.
+
+    Items in a single design routinely come from three different shops, so a
+    single "total" hides the fact that the user is about to authorize three
+    separate charges that will appear as three separate lines on a statement.
+    This type is what makes that visible before the fact rather than after.
+    """
+
+    merchant: str
+    lines: list[CartLine]
+    subtotal_cents: int
+    shipping_cents: int = 0
+    tax_cents: int = 0
+    total_cents: int
+    # Which stored card pays this merchant. Per-merchant so a user can put the
+    # sofa on one card and the rug on another.
+    payment_method_id: str
+    # Set once authorized.
+    auth_code: str | None = None
+    status: Literal["pending", "approved", "declined"] = "pending"
+    decline_reason: str = ""
+    # Fictional, but the user is entitled to know when the thing arrives
+    # before they agree to pay for it.
+    eta_days: int = 7
+
+
+class PaymentIntentStatus(str, Enum):
+    """Where a transaction sits between "proposed" and "paid".
+
+    REQUIRES_CONFIRMATION is the state that matters: the agent has done all it
+    is permitted to do and is now waiting on a human. An intent cannot leave
+    that state except by a user action.
+    """
+
+    REQUIRES_CONFIRMATION = "requires_confirmation"
+    REQUIRES_VERIFICATION = "requires_verification"
+    AUTHORIZING = "authorizing"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class PaymentIntent(BaseModel):
+    """A fully-priced, not-yet-authorized purchase awaiting human approval.
+
+    This is the transaction preview. It is created by the agent, it is
+    complete enough that nothing about the charge can change after the user
+    reads it, and it is inert: holding one confers no ability to move money.
+    """
+
+    simulated: Literal[True] = True
+    disclaimer: str = (
+        "SIMULATED DEMO - no payment is processed and no order is placed. "
+        "Card details shown are fictional test values."
+    )
+
+    id: str
+    session_id: str | None = None
+    status: PaymentIntentStatus = PaymentIntentStatus.REQUIRES_CONFIRMATION
+    charges: list[MerchantCharge] = Field(default_factory=list)
+
+    subtotal_cents: int = 0
+    shipping_cents: int = 0
+    tax_cents: int = 0
+    total_cents: int = 0
+    currency: str = "USD"
+
+    # The budget the design was solved against, so the preview can say whether
+    # this purchase honours the constraint the user set at the start.
+    budget_cents: int = 0
+
+    risk: list[RiskSignal] = Field(default_factory=list)
+    requires_step_up: bool = False
+
+    # Who proposed this. "agent" is the honest answer for anything Room Hack
+    # assembled on the user's behalf, and it is itself a risk signal.
+    initiated_by: Literal["agent", "user"] = "agent"
+
+    # Unix seconds. A preview the user leaves open for an hour should not still
+    # be chargeable: prices, stock and intent all go stale.
+    created_at: float = 0.0
+    expires_at: float = 0.0
+
+    # Set after authorization.
+    order_id: str | None = None
+
+    @property
+    def over_budget(self) -> bool:
+        return self.budget_cents > 0 and self.total_cents > self.budget_cents
+
+    @property
+    def merchant_count(self) -> int:
+        return len(self.charges)
+
+
+class PaymentIntentRequest(BaseModel):
+    """Ask the agent to price a purchase. Creates a preview, charges nothing."""
+
+    item_ids: list[str]
+    session_id: str | None = None
+    # Per-merchant card assignment; merchants absent fall back to the default
+    # card. Lets the user split a multi-shop order across cards.
+    payment_method_ids: dict[str, str] = Field(default_factory=dict)
+
+
+class VerificationChallenge(BaseModel):
+    """A step-up identity check, in the shape of a 3-D Secure prompt.
+
+    The code is delivered out of band in a real system. Here it is returned in
+    the response and labelled as such, because a demo that hid it would be
+    unusable and pretending otherwise would be the dishonest option.
+    """
+
+    simulated: Literal[True] = True
+    intent_id: str
+    challenge_id: str
+    method: Literal["sms_otp", "app_push"] = "sms_otp"
+    # Masked destination, as a real challenge would show it.
+    sent_to: str = "··· ··· ·· 4417"
+    # DEMO ONLY. A real challenge never returns its own answer.
+    demo_code: str = ""
+    expires_at: float = 0.0
+    attempts_remaining: int = 3
+
+
+class VerifyRequest(BaseModel):
+    intent_id: str
+    challenge_id: str
+    code: str
+
+
+class AuthorizeRequest(BaseModel):
+    """The user's explicit instruction to charge. The only way money moves.
+
+    `idempotency_key` is the client's guarantee that a double-click, a retry
+    or a flaky connection cannot authorize the same purchase twice - the one
+    failure mode of an agent-driven checkout that costs the user real money.
+    """
+
+    intent_id: str
+    idempotency_key: str
+    # Echoed back from the preview the user actually read. If the intent has
+    # changed since it was displayed, authorization is refused rather than
+    # charging a total the user never saw.
+    confirmed_total_cents: int
+
+
+class AuthorizationReceipt(BaseModel):
+    """Outcome of a simulated authorization, per merchant."""
+
+    simulated: Literal[True] = True
+    disclaimer: str = (
+        "SIMULATED DEMO - no payment was processed and no order was placed."
+    )
+    intent_id: str
+    order_id: str
+    status: PaymentIntentStatus
+    charges: list[MerchantCharge] = Field(default_factory=list)
+    total_cents: int = 0
+    approved_cents: int = 0
+    declined_cents: int = 0
+    currency: str = "USD"
+    authorized_at: float = 0.0
+    # A plain-language record of what the user agreed to and when. An audit
+    # trail is what makes an agent's spending reviewable after the fact.
+    audit: list[str] = Field(default_factory=list)

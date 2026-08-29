@@ -3,169 +3,906 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RoomCrafter AI — Design a room that feels like you</title>
+<title>Room Hack — Design a room that feels like you</title>
+<meta name="description" content="Upload a photo, share your budget, and get a shoppable layout solved against your room's real dimensions.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=Figtree:wght@400..700&display=swap">
+<link rel="stylesheet" href="shared.css">
 <style>
-  :root { --bg:#f7f5f0; --panel:#fffdf9; --ink:#20352c; --muted:#6d776f; --line:#dfe4dc; --accent:#d87a52; --accent-dark:#b95e39; --soft:#e8eee5; --ok:#4d8d68; --warn:#b7791f; }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
-  header { padding:20px max(24px,calc((100% - 1180px)/2)); display:flex; align-items:center; gap:14px; background:rgba(247,245,240,.9); }
-  header h1 { font:700 20px Georgia,serif; margin:0; letter-spacing:-.03em; } header h1 span { color:var(--accent); }
-  header .note { color:var(--muted); font-size:12px; } #health { margin-left:auto; font-size:12px; color:var(--muted); }
-  .hero { max-width:1180px; margin:0 auto; padding:64px 24px 76px; display:grid; grid-template-columns:1.02fr .98fr; gap:64px; align-items:center; }
+  /* Landing page only. No API state and no design logic - the only script is
+     the hero showcase walkthrough at the bottom of this file, so "Start
+     designing" is a plain link and the workspace pays for its own weight. */
+
+  /* --- Hero stage ---------------------------------------------------------
+     Header and hero share one full-bleed photographic backdrop, so they read
+     as a single scene rather than a bar sitting above a picture. */
+  .stage {
+    position:relative; isolation:isolate;
+    background:var(--ink) url("assets/backdrop.jpg") center 58% / cover no-repeat;
+  }
+  /* The backdrop is a busy photograph and the headline sits directly on it, so
+     some scrim is needed - but a heavy one flattens the scene into a beige
+     wash. This is deliberately light: enough lift behind the words to hold
+     contrast, clearing early so the coastline stays legible. The headline
+     carries a soft text-shadow to make up the difference. */
+  .stage::before {
+    content:""; position:absolute; inset:0; z-index:0;
+    background:
+      linear-gradient(100deg, rgba(244,241,236,.88) 0%, rgba(244,241,236,.74) 24%, rgba(244,241,236,.46) 46%, rgba(244,241,236,.16) 70%, rgba(244,241,236,.06) 100%),
+      linear-gradient(to bottom, rgba(244,241,236,.34) 0%, rgba(244,241,236,0) 20%);
+  }
+  /* Melts the stage into the page below instead of ending on a hard seam. */
+  .stage::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:clamp(64px,9vh,120px); z-index:1;
+    background:linear-gradient(to bottom, rgba(244,241,236,0), var(--bg));
+    pointer-events:none;
+  }
+  .stage > * { position:relative; z-index:2; }
+
+  header {
+    display:flex; align-items:center; gap:var(--s4);
+    padding:clamp(var(--s3),2vh,var(--s5)) max(var(--s5),calc((100% - 1180px)/2));
+  }
+  header .note { color:var(--muted); font-size:12px; }
+  /* Reference-style centre nav. Anchors only - this is a one-page site. */
+  .head-nav { display:flex; gap:var(--s6); margin:0 auto; }
+  .head-nav a { color:var(--ink); text-decoration:none; font-size:14px; opacity:.82; }
+  .head-nav a:hover { opacity:1; text-decoration:underline; text-underline-offset:4px; }
+  header .head-cta { width:auto; padding:9px 18px; border-radius:var(--r-pill); font-size:13px; text-decoration:none; display:inline-block; }
+
+  .wrap { max-width:1180px; margin:0 auto; padding:0 var(--s5); }
+
+  /* --- Hero ---------------------------------------------------------------- */
+  .hero {
+    display:grid; grid-template-columns:1fr 1fr; gap:var(--s6); align-items:center;
+    padding-top:clamp(var(--s3),2.2vh,var(--s6));
+    padding-bottom:clamp(var(--s6),7vh,104px);
+  }
+  /* Display type, sized off the viewport like the reference - smaller than the
+     reference's, since this headline runs three lines rather than three words. */
+  .hero h2 {
+    font-size:clamp(34px,4.2vw,60px) !important; line-height:.98 !important;
+    letter-spacing:-.05em; text-shadow:0 1px 22px rgba(244,241,236,.9);
+  }
+  .hero .rule { text-shadow:0 1px 14px rgba(244,241,236,.85); }
+  /* These two sit where the scrim has cleared, over dark foliage, so a shadow
+     alone leaves them under AA. A local wash keeps them legible without
+     darkening the whole backdrop. */
+  .hero .eyebrow, .hero .trust {
+    text-shadow:0 1px 3px rgba(244,241,236,1), 0 1px 16px rgba(244,241,236,.95);
+  }
+  .hero .eyebrow { color:var(--ink); opacity:.9; }
+  .hero .trust span { color:var(--ink); opacity:.92; }
+  .hero h2 sup { font-size:.28em; vertical-align:super; letter-spacing:0; }
+  .hero .rule { display:block; color:var(--ink); opacity:.75; font-size:clamp(14px,1.2vw,16px); letter-spacing:.01em; margin:var(--s4) 0 var(--s5); }
+  .hero .lede { color:var(--ink); opacity:.8; font-size:16px; max-width:430px; margin:0 0 var(--s5); text-shadow:0 1px 14px rgba(244,241,236,.85); }
+  .hero .rule i { color:var(--accent); font-style:normal; }
   .eyebrow { color:var(--accent-dark); text-transform:uppercase; letter-spacing:.16em; font-size:11px; font-weight:800; }
-  .hero h2 { font:700 clamp(42px,6vw,72px)/.98 Georgia,serif; letter-spacing:-.055em; margin:16px 0 22px; max-width:650px; }
-  .hero h2 em { color:var(--accent); font-style:normal; } .hero p { color:var(--muted); font-size:17px; max-width:500px; margin:0 0 28px; }
-  .hero-actions { display:flex; gap:12px; align-items:center; } .hero button { width:auto; margin:0; padding:13px 20px; border-radius:999px; }
-  .primary { background:var(--accent); border-color:var(--accent); color:#fff; } .secondary { background:transparent; border-color:var(--line); color:var(--ink); }
-  .hero-image { position:relative; } .hero-image img { width:100%; max-height:520px; object-fit:cover; border-radius:28px; display:block; box-shadow:18px 22px 0 var(--soft); opacity:1; transition:opacity .28s ease; } .hero-image img.is-changing { opacity:0; }
-  .room-switcher { display:flex; gap:8px; margin-top:14px; } .room-switcher button { width:auto; margin:0; padding:8px 13px; border-radius:999px; background:var(--panel); color:var(--muted); border:1px solid var(--line); font-size:12px; } .room-switcher button.active { background:var(--ink); color:#fff; border-color:var(--ink); }
-  .hotspot { position:absolute; border:2px solid rgba(255,255,255,.9); background:rgba(216,122,82,.2); color:transparent; cursor:pointer; box-shadow:0 4px 14px #20352c35; transform:translate(-50%,-50%); transition:.2s ease; }
-  .hotspot:hover { background:rgba(216,122,82,.34); border-color:var(--accent); transform:translate(-50%,-50%) scale(1.04); }
-  .hotspot.attention { animation:attention-blink 1.15s ease-in-out infinite; } .hotspot.flash { animation:attention-flash .7s ease-in-out 3; }
-  @keyframes attention-blink { 0%,100%{opacity:.35;box-shadow:0 4px 14px #20352c35} 50%{opacity:1;box-shadow:0 0 0 9px rgba(216,122,82,.22),0 5px 18px #20352c55} } @keyframes attention-flash { 0%,100%{box-shadow:0 4px 14px #20352c35} 50%{box-shadow:0 0 0 12px rgba(216,122,82,.38),0 5px 18px #20352c55} }
-  .sofa-hotspot { width:150px; height:70px; border-radius:34px 34px 22px 22px; }
-  .sofa-hotspot:before, .sofa-hotspot:after { content:''; position:absolute; bottom:-8px; width:18px; height:15px; border-radius:0 0 5px 5px; background:rgba(216,122,82,.4); }
-  .sofa-hotspot:before { left:24px; } .sofa-hotspot:after { right:24px; }
-  .coffee-hotspot { width:150px; height:70px; border-radius:50%; }
-  .chair-hotspot { display:none; width:150px; height:70px; border-radius:48% 48% 38% 38%; }
-  .room02-only { display:none; } .room01-only { display:block; }
-  .swap-panel { position:absolute; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; width:210px; box-shadow:0 10px 28px #20352c25; z-index:3; } .swap-panel small { color:var(--muted); display:block; margin-bottom:7px; } .swap-panel button { width:100%; margin:4px 0 0; padding:8px; background:var(--soft); color:var(--ink); border:1px solid var(--line); font-size:12px; }
-  .floating { position:absolute; left:-24px; bottom:24px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:13px 16px; box-shadow:0 12px 30px #20352c18; font-size:12px; }
-  .floating strong { display:block; font-size:15px; margin-bottom:2px; } .trust { display:flex; gap:22px; color:var(--muted); font-size:12px; margin-top:25px; }
-  .how { max-width:1180px; margin:0 auto; padding:0 24px 64px; } .how h3 { font:700 30px Georgia,serif; margin:0 0 22px; } .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
-  .step { background:var(--soft); border-radius:18px; padding:20px; } .step b { color:var(--accent-dark); font-size:12px; } .step h4 { margin:12px 0 5px; font:700 21px Georgia,serif; } .step p { color:var(--muted); margin:0; }
-  .chat-overlay { position:fixed; inset:0; z-index:10; background:rgba(32,53,44,.35); backdrop-filter:blur(8px); display:grid; place-items:center; padding:22px; } .chat-window { width:min(100%,1080px); height:min(720px,calc(100vh - 44px)); background:var(--bg); border:1px solid #fff8; border-radius:24px; overflow:hidden; box-shadow:0 24px 70px #20352c45; display:grid; grid-template-rows:auto 1fr; }
-  .chat-head { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; background:var(--panel); border-bottom:1px solid var(--line); } .chat-head strong { font:700 22px Georgia,serif; } .chat-head span { color:var(--muted); font-size:12px; display:block; } .chat-close { width:auto; margin:0; padding:5px 10px; background:transparent; color:var(--ink); border:1px solid var(--line); border-radius:999px; }
-  .chat-body { display:grid; grid-template-columns:1.1fr .9fr; min-height:0; } .messages { padding:26px; display:flex; flex-direction:column; min-height:0; } .message-list { flex:1; overflow:auto; display:grid; align-content:start; gap:14px; padding-right:8px; } .bubble { max-width:78%; padding:13px 15px; border-radius:16px 16px 16px 4px; background:var(--soft); color:var(--ink); } .bubble.user { justify-self:end; border-radius:16px 16px 4px 16px; background:var(--ink); color:#fff; } .bubble small { display:block; opacity:.65; font-size:10px; margin-bottom:4px; text-transform:uppercase; letter-spacing:.1em; }
-  .chat-input { display:flex; gap:8px; margin-top:20px; } .chat-input input { flex:1; } .chat-input button { width:auto; margin:0; padding:10px 16px; }
-  .chat-sidebar { border-left:1px solid var(--line); background:var(--panel); padding:22px; overflow:auto; } .chat-sidebar h4 { margin:0 0 14px; font:700 21px Georgia,serif; } .upload-box { border:1.5px dashed #b9c7b8; border-radius:16px; padding:24px 16px; text-align:center; background:var(--soft); margin-bottom:24px; } .upload-box input { border:0; background:transparent; padding:8px 0; } .field-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:16px 0 6px; display:block; } .generate { margin-top:22px; }
-  @media (max-width:760px) { .chat-body { grid-template-columns:1fr; overflow:auto; } .chat-sidebar { border-left:0; border-top:1px solid var(--line); } .chat-window { height:calc(100vh - 24px); } }
-  .planner { border-top:1px solid var(--line); padding:48px max(24px,calc((100% - 1180px)/2)) 80px; } .planner-title { max-width:1180px; margin:0 auto 22px; } .planner-title h3 { font:700 32px Georgia,serif; margin:0 0 5px; } .planner-title p { color:var(--muted); margin:0; }
-  main { max-width:1180px; margin:0 auto; display:grid; grid-template-columns:360px 1fr; gap:18px; align-items:start; }
-  @media (max-width: 860px) { .hero { grid-template-columns:1fr; gap:35px; padding-top:35px; } .steps { grid-template-columns:1fr; } main { grid-template-columns:1fr; } .floating { left:12px; } }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 8px 24px #20352c08; } .card h2 { font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); margin:0 0 12px; }
-  label { display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; }
-  input, textarea, button {
-    width:100%; font:inherit; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:9px; padding:10px 11px;
+  .hero h2 { font-size:clamp(42px,6vw,70px); line-height:.99; letter-spacing:-.055em; margin:var(--s4) 0 var(--s5); }
+  .hero h2 em { color:var(--accent); font-style:normal; }
+  .hero p.lede { color:var(--muted); font-size:17px; max-width:500px; margin:0 0 var(--s6); }
+
+  .hero-actions { display:flex; gap:var(--s3); align-items:center; flex-wrap:wrap; }
+  .btn { width:auto; padding:14px 24px; border-radius:var(--r-pill); font-size:15px; font-weight:650; text-decoration:none; display:inline-block; border:1px solid transparent; cursor:pointer; }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn-primary:hover { background:var(--accent-dark); border-color:var(--accent-dark); }
+  .btn-secondary { background:transparent; border-color:var(--line); color:var(--ink); }
+  .btn-secondary:hover { background:var(--soft); border-color:var(--muted); }
+
+  .trust { display:flex; gap:var(--s5); color:var(--muted); font-size:13px; margin-top:var(--s6); flex-wrap:wrap; }
+
+  /* The reference's floating white card. It carries the interactive showcase,
+     so the demo reads as a product surface laid over the scene rather than
+     another photograph pasted beside the headline. */
+  .showcase-card {
+    background:rgba(255,253,249,.92); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.6); border-radius:34px;
+    padding:var(--s5); box-shadow:0 30px 80px #26333f38;
   }
-  textarea { resize: vertical; min-height: 62px; }
-  button {
-    background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; cursor:pointer; margin-top:12px;
+  .showcase-head { display:flex; align-items:center; gap:var(--s2); margin-bottom:var(--s4); flex-wrap:wrap; }
+  .chip {
+    font-size:12px; padding:7px 15px; border-radius:var(--r-pill);
+    border:1px solid var(--line); background:var(--panel); color:var(--muted);
   }
-  button:disabled { opacity: .55; cursor: not-allowed; }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .tag {
-    font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
-    background:#fff; border:1px solid var(--line); color:var(--muted); width:auto;
+  .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); font-weight:650; }
+  .showcase-title { margin:0 0 var(--s1); font-size:23px; letter-spacing:-.03em; }
+  .showcase-sub { color:var(--muted); font-size:13px; margin:0 0 var(--s4); }
+
+  .hero-image { position:relative; }
+  /* The photo and its overlays, separate from the room-switcher below, so a
+     bottom-anchored overlay lands on the picture rather than over the buttons. */
+  .photo-frame { position:relative; }
+  .hero-image img { width:100%; aspect-ratio:4/3; max-height:none; object-fit:cover; border-radius:var(--r-lg); display:block; box-shadow:none; opacity:1; transition:opacity .28s ease; }
+  .hero-image img.is-changing { opacity:0; }
+
+  /* --- Hero showcase ------------------------------------------------------- */
+  /* A scripted walkthrough of a swap, not a live one: it cycles prepared shots
+     so the landing page reacts instantly. The real solver-backed swap lives in
+     app/, where a generative render can take half a minute. */
+  .room-switcher { display:flex; gap:var(--s2); margin-top:var(--s3); flex-wrap:wrap; }
+  .room-switcher button { width:auto; margin:0; padding:var(--s2) 13px; border-radius:var(--r-pill); background:var(--panel); color:var(--muted); border:1px solid var(--line); font-size:12px; cursor:pointer; }
+  .room-switcher button.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+  /* A small dot rather than a furniture-shaped outline: the piece is already
+     visible in the photo, so the marker only has to say "press here". */
+  .hotspot {
+    position:absolute; width:22px; height:22px; padding:0; border-radius:50%;
+    border:2px solid rgba(255,255,255,.95); background:var(--accent);
+    color:transparent; cursor:pointer; box-shadow:0 3px 12px #26333f4d;
+    transform:translate(-50%,-50%); transition:transform .18s ease, opacity .18s ease;
   }
-  .tag.on { background:var(--soft); border-color:var(--accent); color:var(--ink); }
-  #narrative { white-space: pre-wrap; min-height: 40px; }
-  #log {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
-    max-height:220px; overflow:auto; background:#f2f4ef;
-    border: 1px solid var(--line); border-radius: 7px; padding: 8px;
+  .hotspot:hover { transform:translate(-50%,-50%) scale(1.22); }
+  .hotspot:focus-visible { outline:3px solid var(--accent-dark); outline-offset:3px; }
+  /* Only the active dot is live; the rest are dimmed and inert so the
+     walkthrough can only be taken in order. */
+  .hotspot[disabled] { opacity:.28; cursor:default; pointer-events:none; }
+  .hotspot.done { display:none; }
+  /* The halo is the invitation. It rides on ::after so the dot itself can
+     scale on hover without fighting the animation. */
+  .hotspot.attention::after, .hotspot.flash::after {
+    content:""; position:absolute; inset:-6px; border-radius:50%;
+    border:2px solid var(--accent); pointer-events:none;
   }
-  #log div { padding: 1px 0; color: var(--muted); }
-  #log .t { color: var(--accent); }
-  .row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
-  .row:last-child { border-bottom: 0; }
-  .muted { color: var(--muted); }
-  .skip { color: var(--warn); font-size: 12px; }
-  .stack { display: grid; gap: 16px; }
-  svg { width:100%; height:auto; background:#f2f4ef; border-radius:9px; } .bar { height:7px; background:#edf0eb; border-radius:999px; overflow:hidden; margin-top:6px; }
-  .bar > i { display: block; height: 100%; background: var(--ok); }
-  .bar > i.over { background: #f87171; }
+  .hotspot.attention::after { animation:dot-pulse 1.5s ease-out infinite; }
+  .hotspot.flash::after { animation:dot-pulse .8s ease-out 3; }
+  @keyframes dot-pulse {
+    0%   { transform:scale(.65); opacity:.9; }
+    70%  { transform:scale(2.1); opacity:0; }
+    100% { transform:scale(2.1); opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hotspot.attention::after, .hotspot.flash::after { animation:none; opacity:.9; transform:scale(1.1); }
+    .hero-image img, .swap-note { transition:none; }
+  }
+  .chair-hotspot { display:none; }
+
+  /* --- Showcase tabs ------------------------------------------------------- */
+  /* The chips are the tab strip: three panels over one card, so the hero shows
+     the whole arc - swap a piece, buy it, or point at something you already
+     own - without three cards fighting for the same column. */
+  /* shared.css sizes every bare `button` to width:100% for form controls. The
+     chips became real buttons for the tablist, so they have to opt back out or
+     the strip stacks into three full-width bars. */
+  .chip { width:auto; cursor:pointer; font:inherit; font-size:12px; line-height:1.2; }
+  .chip:hover:not(.on) { border-color:var(--muted); color:var(--ink); }
+  .panel-body[hidden] { display:none !important; }
+
+  /* --- Shop panel ---------------------------------------------------------- */
+  /* A still of the workspace's real checkout: same tokens, same per-merchant
+     grouping. The point it has to make in the hero is that a multi-merchant
+     order is itemised and authorized by the user, not the agent. */
+  .shop-sheet {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--r-md); padding:var(--s4); box-shadow:var(--shadow-sm);
+  }
+  .shop-merchant + .shop-merchant { margin-top:var(--s4); padding-top:var(--s4); border-top:1px solid var(--line); }
+  .shop-merchant-head { display:flex; justify-content:space-between; align-items:baseline; gap:var(--s3); margin-bottom:var(--s2); }
+  .shop-merchant-head strong { font:650 14px var(--sans); letter-spacing:-.01em; }
+  .shop-merchant-head .ship { font-size:11px; color:var(--muted); }
+  .shop-line { display:flex; justify-content:space-between; gap:var(--s3); font-size:13px; color:var(--muted); padding:3px 0; }
+  .shop-line .sl-price { font-variant-numeric:tabular-nums; color:var(--ink); }
+  .shop-card {
+    display:flex; align-items:center; gap:var(--s2); margin-top:var(--s2);
+    font-size:11px; color:var(--muted);
+  }
+  .shop-card .dot { width:26px; height:17px; border-radius:3px; background:var(--ink); opacity:.85; flex:none; }
+  .shop-totals { border-top:1px solid var(--line); margin-top:var(--s4); padding-top:var(--s3); }
+  .shop-row { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); padding:2px 0; }
+  .shop-row.total { color:var(--ink); font-weight:650; font-size:16px; padding-top:var(--s2); }
+  .shop-row .sr-amt { font-variant-numeric:tabular-nums; }
+  /* Press-and-hold is the real gesture in the workspace: the agent can price an
+     order but only the user releases it. The bar fills on hold. */
+  .hold-btn {
+    position:relative; overflow:hidden; margin-top:var(--s4);
+    background:var(--accent); border-color:var(--accent); color:#fff;
+    font-weight:650; border-radius:var(--r-pill); padding:13px 20px; cursor:pointer;
+  }
+  .hold-btn:disabled { opacity:1; cursor:default; }
+  .hold-fill {
+    position:absolute; inset:0 auto 0 0; width:0; background:var(--accent-dark);
+    pointer-events:none; transition:width .08s linear;
+  }
+  .hold-btn span { position:relative; z-index:1; }
+  .hold-btn.done { background:var(--ok); border-color:var(--ok); }
+  .pay-secure { font-size:11px; color:var(--muted); text-align:center; margin-top:var(--s2); }
+
+  /* --- Investigate panel --------------------------------------------------- */
+  /* Reverse search over the catalog: boxes drawn on the photo, each opening a
+     ranked match list. Boxes are normalized [0,1] exactly as /api/detect
+     returns them, so the demo geometry matches the real payload. */
+  .inv-frame { position:relative; }
+  .inv-frame img { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:var(--r-lg); display:block; }
+  .inv-box {
+    position:absolute; border:2px solid var(--accent); border-radius:6px;
+    background:transparent; padding:0; cursor:pointer;
+    box-shadow:0 0 0 9999px transparent; transition:background .18s ease, border-color .18s ease;
+  }
+  /* Three boxes overlap heavily in a real room photo, so all three at full
+     strength read as noise. Unselected boxes stay faint and drop their label;
+     the selected one comes forward. Only one result is shown at a time, so
+     only one label is ever needed. */
+  .inv-box { opacity:.5; }
+  .inv-box:hover { background:rgba(168,85,42,.16); opacity:1; }
+  .inv-box.on { background:rgba(168,85,42,.2); border-color:var(--accent-dark); border-width:3px; opacity:1; z-index:1; }
+  .inv-box:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; opacity:1; }
+  .inv-box b { opacity:0; transition:opacity .18s ease; }
+  .inv-box.on b, .inv-box:hover b, .inv-box:focus-visible b { opacity:1; }
+  /* The label rides the top-left corner of its box, flipping inside when the
+     box is near the top edge so it is never clipped by the photo. */
+  .inv-box b {
+    position:absolute; left:-2px; bottom:100%; margin-bottom:4px;
+    background:var(--ink); color:#fff; font:600 10px var(--sans);
+    letter-spacing:.04em; text-transform:uppercase; padding:3px 7px;
+    border-radius:5px; white-space:nowrap;
+  }
+  .inv-box.low b { bottom:auto; top:-2px; margin-bottom:0; }
+  .inv-scanline {
+    position:absolute; left:0; right:0; height:2px; z-index:2;
+    background:linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity:0; pointer-events:none;
+  }
+  .inv-frame.scanning .inv-scanline { animation:scan 1.1s ease-in-out; }
+  @keyframes scan {
+    0% { top:0; opacity:0; } 12% { opacity:1; }
+    88% { opacity:1; } 100% { top:100%; opacity:0; }
+  }
+  .inv-results { margin-top:var(--s3); }
+  .inv-empty { color:var(--muted); font-size:13px; padding:var(--s3) 0; }
+  .inv-caption {
+    font-size:12px; color:var(--muted); font-style:italic;
+    padding-bottom:var(--s2); margin-bottom:var(--s2); border-bottom:1px solid var(--line);
+  }
+  .inv-match { display:flex; align-items:center; gap:var(--s3); padding:7px 0; }
+  .inv-swatch { width:38px; height:38px; border-radius:8px; object-fit:cover; flex:none; border:1px solid var(--line); }
+  .inv-meta { min-width:0; flex:1; }
+  .inv-meta strong { display:block; font:600 13px var(--sans); letter-spacing:-.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .inv-meta span { font-size:11px; color:var(--muted); }
+  .inv-price { font:650 13px var(--sans); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  /* The honest flag from ReverseSearchResult.confident. An unconfident match is
+     "the closest thing we sell", not an identification, and must not be dressed
+     up as one. */
+  .inv-conf { font-size:10px; padding:3px 8px; border-radius:var(--r-pill); font-weight:650; letter-spacing:.03em; }
+  .inv-conf.yes { background:#e3efe8; color:var(--ok); }
+  .inv-conf.no { background:var(--soft); color:var(--muted); }
+
+  /* Names the piece the user just chose, then gets out of the way. */
+  .swap-note {
+    position:absolute; left:var(--s4); bottom:var(--s4); z-index:3;
+    background:rgba(253,252,250,.96); border:1px solid var(--line);
+    border-radius:var(--r-md); padding:10px 14px; box-shadow:var(--shadow-md);
+    opacity:0; transform:translateY(6px); pointer-events:none;
+    transition:opacity .3s ease, transform .3s ease; max-width:78%;
+  }
+  .swap-note.show { opacity:1; transform:translateY(0); }
+  .swap-note strong { display:block; font:600 14px var(--sans); letter-spacing:-.01em; }
+  .swap-note span { font-size:13px; color:var(--accent-dark); font-weight:650; }
+  .room01-only { display:block; }
+  /* An itemised receipt rather than a bare total: a swap picks a better-value
+     piece, and showing the line it replaced is what makes the saving legible. */
+  .receipt {
+    position:absolute; top:var(--s4); right:var(--s4); z-index:3; width:216px;
+    background:rgba(253,252,250,.96); border:1px solid var(--line);
+    border-radius:var(--r-md); padding:var(--s3) var(--s4);
+    box-shadow:var(--shadow-md); font-size:12px;
+  }
+  .receipt-head {
+    font-size:10px; text-transform:uppercase; letter-spacing:.11em;
+    color:var(--muted); padding-bottom:7px; margin-bottom:7px;
+    border-bottom:1px solid var(--line);
+  }
+  .receipt-lines { display:grid; gap:5px; }
+  .receipt-line { display:flex; justify-content:space-between; gap:var(--s3); align-items:baseline; }
+  .receipt-line .rl-name { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .receipt-line .rl-price { font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  /* A swapped line: the old price struck through, the new one beside it. */
+  .receipt-line.swapped .rl-name { color:var(--ink); }
+  .receipt-line .rl-was { color:var(--muted); text-decoration:line-through; font-weight:400; margin-right:5px; }
+  .receipt-line.new { animation:receipt-in .34s ease-out; }
+  @keyframes receipt-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+  .receipt-total {
+    display:flex; justify-content:space-between; align-items:baseline; gap:var(--s3);
+    border-top:1px solid var(--line); margin-top:7px; padding-top:7px;
+  }
+  .receipt-total span { font-size:10px; text-transform:uppercase; letter-spacing:.11em; color:var(--muted); }
+  .receipt-total strong { font:650 17px var(--sans); letter-spacing:-.02em; font-variant-numeric:tabular-nums; transition:color .3s ease; }
+  .receipt-total strong.dropped { color:var(--ok); }
+  .receipt-saved {
+    display:block; text-align:right; font-size:11px; font-weight:650; color:var(--ok); margin-top:3px;
+  }
+  @media (max-width:520px) {
+    .receipt { position:static; width:auto; margin-bottom:var(--s3); }
+  }
+  .floating {
+    position:absolute; left:var(--s3); top:var(--s3); background:rgba(255,253,249,.95);
+    border:1px solid var(--line); border-radius:var(--r-md); padding:10px 13px;
+    box-shadow:var(--shadow-md); font-size:12px; max-width:70%;
+  }
+  .floating strong { display:block; font-family:var(--sans); font-size:15px; margin-bottom:2px; }
+
+  /* --- How it works -------------------------------------------------------- */
+  .how { padding:0 0 var(--s8); }
+  .how h3 { font-size:32px; margin:0 0 var(--s5); }
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:var(--s4); }
+  .step { background:var(--soft); border-radius:var(--r-lg); padding:var(--s5); }
+  .step b { color:var(--accent-dark); font-size:11px; letter-spacing:.1em; }
+  .step h4 { margin:var(--s3) 0 var(--s1); font-size:21px; }
+  .step p { color:var(--muted); margin:0; font-size:14px; }
+
+  /* --- Trust strip --------------------------------------------------------- */
+  .assurance { border-top:1px solid var(--line); padding:var(--s7) 0 var(--s8); }
+  .assurance h3 { font-size:28px; margin:0 0 var(--s2); }
+  .assurance > .wrap > p { color:var(--muted); margin:0 0 var(--s5); max-width:620px; }
+  .guards { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:var(--s4); }
+  .guard { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s4); }
+  .guard strong { display:block; font-family:var(--sans); font-size:14px; margin-bottom:var(--s1); }
+  .guard span { color:var(--muted); font-size:13px; }
+
+  .cta-band { background:var(--soft); border-radius:var(--r-xl); padding:var(--s7) var(--s5); text-align:center; margin-bottom:var(--s8); }
+  .cta-band h3 { font-size:30px; margin:0 0 var(--s2); }
+  .cta-band p { color:var(--muted); margin:0 0 var(--s5); }
+
+  footer { border-top:1px solid var(--line); padding:var(--s5) 0 var(--s6); color:var(--muted); font-size:12px; }
+  footer .wrap { display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center; }
+  footer .disclaimer { margin-left:auto; max-width:560px; text-align:right; }
+
+  @media (max-width:860px) {
+    .hero { grid-template-columns:1fr; gap:var(--s6); padding-top:var(--s5); padding-bottom:var(--s8); }
+    .steps { grid-template-columns:1fr; }
+    .floating { left:12px; }
+    /* The nav collapses before it starts wrapping mid-phrase; the header CTA
+       carries the same destination, so nothing is lost by hiding it. */
+    .head-nav { display:none; }
+    header { gap:var(--s3); }
+    header .head-cta { margin-left:auto; }
+    /* A vertical scrim reads better than the diagonal one once the headline
+       sits above the card rather than beside it. */
+    .stage::before {
+      background:linear-gradient(to bottom, rgba(244,241,236,.94) 0%, rgba(244,241,236,.88) 46%, rgba(244,241,236,.62) 100%);
+    }
+    footer .wrap { flex-direction:column; align-items:flex-start; }
+    footer .disclaimer { margin-left:0; text-align:left; }
+  }
+  @media (max-width:520px) {
+    header .note { display:none; }
+    .showcase-card { padding:var(--s4); border-radius:26px; }
+    .hero-actions .btn { width:100%; text-align:center; }
+  }
 </style>
 </head>
 <body>
+
+<div class="stage">
 <header>
-  <h1>Room<span>Crafter</span></h1>
-  <span class="note">Your room, reimagined.</span>
-  <span id="health">Ready to explore</span>
+  <span class="wordmark">Room<span>Hack</span></span>
+  <nav class="head-nav">
+    <a href="#how">How it works</a>
+    <a href="#assurance">Assurance</a>
+    <a href="app/">Planner</a>
+  </nav>
+  <a class="btn btn-primary head-cta" href="app/">Start designing</a>
 </header>
 
-<section class="hero">
+<section class="wrap hero">
   <div>
     <div class="eyebrow">AI-powered interior design</div>
-    <h2>A room that feels <em>like you.</em></h2>
-    <p>Upload a photo, share your mood, and get a beautiful, shoppable layout built around your space and your budget.</p>
-    <div class="hero-actions"><button class="primary" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">Start chatting <span>→</span></button><button class="secondary" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">See how it works</button></div>
+    <h2>THE<br>PERFECT<br>ROOM<sup>®</sup></h2>
+    <span class="rule"><i>/</i> We design around your real space <i>/</i></span>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="app/">Start designing</a>
+    </div>
     <div class="trust"><span>✦ Real products</span><span>✦ Fits your budget</span><span>✦ Made for your space</span></div>
   </div>
-  <div class="hero-image" id="showcase"><img id="room-photo" src="assets/room-01-user.png" alt="Modern lux living room with sculptural sofa"><button class="hotspot sofa-hotspot" style="left:34%;top:61%" data-item="Sofa" aria-label="Select sofa">+</button><button class="hotspot coffee-hotspot" style="left:62%;top:74%" data-item="Coffee table" aria-label="Select coffee table">+</button><button class="hotspot chair-hotspot" style="left:81%;top:65%" data-item="Accent chair" aria-label="Select accent chair">+</button><div class="floating"><strong>Hover a piece to explore</strong><span>Swap the look in one click</span></div><div class="swap-panel sofa-panel" hidden style="left:24%;top:66%"><small>Sofa replacement</small><button data-swap="Replace with modular sofa" data-room01-label="Replace with modular sofa" data-room02-label="Midnight blue sofa">Replace with modular sofa</button><button class="room01-only" data-swap="Replace with leather sofa" data-room01-label="Replace with leather sofa">Replace with leather sofa</button></div><div class="swap-panel coffee-panel" hidden style="left:51%;top:78%"><small>Coffee table replacement</small><button data-swap="Replace with organic wood table" data-room02-label="Round oak coffee table">Replace with organic wood table</button></div><div class="swap-panel chair-panel" hidden style="left:70%;top:76%"><small>Accent chair replacement</small><button data-swap="Replace with bean bag">Replace with bean bag</button></div><div class="room-switcher"><button class="active" data-room="assets/room-01-user.png" data-room-key="room01">Room 01 · Modern Lux</button><button data-room="assets/room-02.png" data-room-key="room02">Room 02 · Soft modern</button></div></div>
-</section>
-<section class="how" id="how"><h3>From blank canvas to your next favorite room.</h3><div class="steps"><div class="step"><b>01 / SHOW US YOUR SPACE</b><h4>Upload a photo</h4><p>Give us a room photo or describe the space you want to transform.</p></div><div class="step"><b>02 / TELL US YOUR VIBE</b><h4>Set your mood</h4><p>Choose a style, budget, and the pieces you need most.</p></div><div class="step"><b>03 / MAKE IT YOURS</b><h4>Shop the look</h4><p>Get a layout that works in real life, with products you can actually buy.</p></div></div></section>
-<div class="chat-overlay" id="chat-overlay" hidden><div class="chat-window" role="dialog" aria-modal="true" aria-labelledby="chat-title"><div class="chat-head"><div><strong id="chat-title">RoomCrafter assistant</strong><span>Your personal interior design copilot</span></div><button class="chat-close" id="chat-close" aria-label="Close chat">Close</button></div><div class="chat-body"><div class="messages"><div class="message-list" id="message-list"><div class="bubble"><small>RoomCrafter AI</small>Hi! I can help you create a room that feels like you. What are you designing today?</div><div class="bubble"><small>Try saying</small>“Make my living room feel calmer, warmer, and more spacious.”</div></div><div class="chat-input"><input id="chat-message" placeholder="Tell me about your space..." aria-label="Message RoomCrafter"><button class="primary" id="chat-send">Send</button></div></div><aside class="chat-sidebar"><h4>Set your direction</h4><div class="upload-box"><strong>Start with a room photo</strong><p class="muted">We’ll use it to understand your space.</p><input type="file" accept="image/*" aria-label="Upload room photo"></div><label class="field-label" for="chat-style">Style</label><select id="chat-style"><option>Modern Lux</option><option>Soft Minimal</option><option>Warm Japandi</option><option>Bold Eclectic</option></select><label class="field-label" for="chat-budget">Budget</label><input id="chat-budget" type="number" placeholder="e.g. 2500"><button class="primary generate" id="generate-layout">Generate my layout →</button></aside></div></div></div>
-<script>
-const $ = id => document.getElementById(id);
-const chatOverlay = $("chat-overlay");
-$("chat-close").onclick = () => { chatOverlay.hidden = true; };
-document.querySelector(".hero-actions .primary").onclick = () => { chatOverlay.hidden = false; $("chat-message").focus(); };
-$("chat-send").onclick = () => { const input = $("chat-message"); const text = input.value.trim(); if (!text) return; $("message-list").insertAdjacentHTML("beforeend", `<div class="bubble user"><small>You</small>${text.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</div><div class="bubble"><small>RoomCrafter AI</small>Got it. I’ll use that direction to shape your room. Add a photo or choose your budget, then generate a layout.</div>`); input.value = ""; $("message-list").scrollTop = $("message-list").scrollHeight; };
-$("chat-message").addEventListener("keydown", e => { if (e.key === "Enter") $("chat-send").click(); });
+  <div class="showcase-card">
+    <div class="showcase-head" role="tablist" aria-label="Product showcase">
+      <button class="chip on" role="tab" id="tab-swap" data-panel="swap"
+              aria-selected="true" aria-controls="panel-swap">Swap</button>
+      <button class="chip" role="tab" id="tab-shop" data-panel="shop"
+              aria-selected="false" aria-controls="panel-shop" tabindex="-1">Shop</button>
+      <button class="chip" role="tab" id="tab-investigate" data-panel="investigate"
+              aria-selected="false" aria-controls="panel-investigate" tabindex="-1">Investigate</button>
+    </div>
+    <h3 class="showcase-title" id="showcase-title">Swap a piece, see the room</h3>
+    <p class="showcase-sub" id="showcase-sub">Tap the pulsing dot to swap that piece for a better-value pick.</p>
 
-// --- interactive room showcase ---
+  <div class="panel-body" id="panel-swap" role="tabpanel" aria-labelledby="tab-swap">
+  <div class="hero-image" id="showcase">
+    <div class="photo-frame">
+    <img id="room-photo" src="assets/room-01-user.png" alt="A modern living room with a sculptural sofa, oak coffee table and warm natural light">
+    <button class="hotspot sofa-hotspot" style="left:31%;top:63%" data-item="Sofa" aria-label="Swap the sofa">+</button>
+    <button class="hotspot coffee-hotspot" style="left:60%;top:76%" data-item="Coffee table" aria-label="Swap the coffee table">+</button>
+    <button class="hotspot chair-hotspot" style="left:80%;top:66%" data-item="Accent chair" aria-label="Swap the accent chair">+</button>
+    <div class="receipt" id="receipt" role="status" aria-live="polite">
+      <div class="receipt-head">Room receipt</div>
+      <div class="receipt-lines" id="receipt-lines"></div>
+      <div class="receipt-total"><span>Total</span><strong id="cart-total">$3,360</strong></div>
+      <span class="receipt-saved" id="cart-saved" hidden></span>
+    </div>
+    <div class="swap-note" id="swap-note" role="status" aria-live="polite"></div>
+    </div>
+    <div class="room-switcher">
+      <button class="active" data-room="assets/room-01-user.png" data-room-key="room01">Room 01 · Modern Lux</button>
+      <button data-room="assets/room-02.png" data-room-key="room02">Room 02 · Soft modern</button>
+    </div>
+  </div>
+  </div><!-- /panel-swap -->
+
+  <!-- Shop: the workspace's real checkout, as a still. Grouped by merchant
+       because that is how the order is actually charged. -->
+  <div class="panel-body" id="panel-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
+    <div class="shop-sheet">
+      <div class="shop-merchant">
+        <div class="shop-merchant-head"><strong>Nordhaus</strong><span class="ship">Arrives in 9 days</span></div>
+        <div class="shop-line"><span>Modular Sofa</span><span class="sl-price">$1,290</span></div>
+        <div class="shop-line"><span>Wool Rug</span><span class="sl-price">$640</span></div>
+        <div class="shop-card"><span class="dot"></span>Visa ending 4242</div>
+      </div>
+      <div class="shop-merchant">
+        <div class="shop-merchant-head"><strong>Cedarline</strong><span class="ship">Arrives in 14 days</span></div>
+        <div class="shop-line"><span>Organic Wood Table</span><span class="sl-price">$430</span></div>
+        <div class="shop-line"><span>Arc Floor Lamp</span><span class="sl-price">$530</span></div>
+        <div class="shop-card"><span class="dot"></span>Amex ending 1005</div>
+      </div>
+      <div class="shop-totals">
+        <div class="shop-row"><span>Subtotal</span><span class="sr-amt">$2,890</span></div>
+        <div class="shop-row"><span>Shipping · 2 merchants</span><span class="sr-amt">$98</span></div>
+        <div class="shop-row"><span>Tax</span><span class="sr-amt">$260</span></div>
+        <div class="shop-row total"><span>Total</span><span class="sr-amt" id="shop-total">$3,248</span></div>
+      </div>
+      <button class="hold-btn" id="hold-btn">
+        <span class="hold-fill" id="hold-fill"></span>
+        <span id="hold-label">Hold to authorize $3,248</span>
+      </button>
+      <div class="pay-secure" id="shop-secure">🔒 Two separate charges. You authorize — the agent cannot.</div>
+    </div>
+  </div><!-- /panel-shop -->
+
+  <!-- Investigate: reverse image search over the catalog. Boxes are normalized
+       [0,1] as /api/detect returns them, so the demo mirrors the real payload
+       shape - including `confident`, which must stay honest. -->
+  <div class="panel-body" id="panel-investigate" role="tabpanel" aria-labelledby="tab-investigate" hidden>
+    <div class="inv-frame" id="inv-frame">
+      <img src="assets/room-01-user.png" alt="A living room photo with detected furniture outlined for reverse search">
+      <div class="inv-scanline"></div>
+    </div>
+    <div class="inv-results" id="inv-results" role="status" aria-live="polite"></div>
+  </div><!-- /panel-investigate -->
+  </div><!-- /showcase-card -->
+</section>
+</div>
+
+<section class="wrap how" id="how">
+  <h3>From blank canvas to your next favorite room.</h3>
+  <div class="steps">
+    <div class="step">
+      <b>01 / SHOW US YOUR SPACE</b>
+      <h4>Upload a photo</h4>
+      <p>Give us a room photo or describe the space you want to transform.</p>
+    </div>
+    <div class="step">
+      <b>02 / TELL US YOUR VIBE</b>
+      <h4>Set your mood</h4>
+      <p>Choose a style, budget, and the pieces you need most.</p>
+    </div>
+    <div class="step">
+      <b>03 / MAKE IT YOURS</b>
+      <h4>Shop the look</h4>
+      <p>Get a layout that works in real life, with products you can actually buy.</p>
+    </div>
+  </div>
+</section>
+
+<section class="assurance">
+  <div class="wrap">
+    <h3>The agent designs. You decide what gets bought.</h3>
+    <p>Your pieces can come from several different shops. Before anything is charged, you see exactly what you are buying, from whom, and on which card — in one page, with no redirect.</p>
+    <div class="guards">
+      <div class="guard"><strong>Itemised by merchant</strong><span>Three shops means three charges. Each one is named, priced and shown separately before you agree.</span></div>
+      <div class="guard"><strong>You authorize, not the agent</strong><span>Room Hack can price an order. Only you can release the payment.</span></div>
+      <div class="guard"><strong>Identity verification</strong><span>Unusual amounts, new merchants or over-budget orders ask you to verify it's really you.</span></div>
+      <div class="guard"><strong>No redirect, ever</strong><span>The whole checkout happens here, so what you read is what gets charged.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="cta-band">
+    <h3>Ready to see your room?</h3>
+    <p>No account needed. Start with a photo or just describe the space.</p>
+    <a class="btn btn-primary" href="app/">Start designing →</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="wordmark">Room<span>Hack</span></span>
+    <span class="disclaimer">Demo. Merchants, products and prices are fictional; payment is simulated and no order is placed.</span>
+  </div>
+</footer>
+
+<script>
+/* --- Hero showcase -------------------------------------------------------
+   A scripted walkthrough of a room being furnished for less. It cycles
+   prepared photographs rather than calling the API: the hero has to react on
+   the click, and a real generative render takes tens of seconds. The
+   solver-backed version lives in app/.
+
+   One dot is live at a time and one click advances one frame - no menu step,
+   so the sequence can only be taken in order and always lands on a photo that
+   exists. Each swap picks a better-value piece, so the room total falls as the
+   walkthrough runs; that saving is the story the hero is telling. */
+const $ = id => document.getElementById(id);
+const showcase = $("showcase");
 const roomPhoto = $("room-photo");
-const swapPanels = { sofa: $("showcase").querySelector(".sofa-panel"), coffee: $("showcase").querySelector(".coffee-panel"), chair: $("showcase").querySelector(".chair-panel") };
+const swapNote = $("swap-note");
+const cartTotal = $("cart-total");
+const receiptLines = $("receipt-lines");
+const cartSaved = $("cart-saved");
+const dots = {
+  sofa: showcase.querySelector(".sofa-hotspot"),
+  coffee: showcase.querySelector(".coffee-hotspot"),
+  chair: showcase.querySelector(".chair-hotspot"),
+};
+
+/* Each room is a fixed run. One entry = one click = one frame. `save` is what
+   that swap takes off the total. */
+const ROOMS = {
+  room01: {
+    photo: "assets/room-01-user.png",
+    baseline: 3360,
+    // What the room costs before any swap. Keys match the dots.
+    lines: [
+      { key: "sofa",   name: "Sculptural Sofa", price: 1640 },
+      { key: "coffee", name: "Stone Coffee Table", price: 550 },
+      { key: "rug",    name: "Wool Rug", price: 640 },
+      { key: "lamp",   name: "Arc Floor Lamp", price: 530 },
+    ],
+    steps: [
+      { key: "sofa",   photo: "assets/sofa-replacement.jpg",         name: "Modular Sofa",       price: 1290, save: 350 },
+      { key: "coffee", photo: "assets/coffee-table-replacement.jpg", name: "Organic Wood Table", price: 430,  save: 120 },
+      { key: "sofa",   photo: "assets/sofa-leather-replacement.jpg", name: "Leather Sofa",       price: 1180, save: 110 },
+    ],
+  },
+  room02: {
+    photo: "assets/room-02.png",
+    baseline: 2980,
+    lines: [
+      { key: "sofa",   name: "Linen Sofa", price: 1440 },
+      { key: "coffee", name: "Marble Side Table", price: 480 },
+      { key: "chair",  name: "Accent Chair", price: 420 },
+      { key: "rug",    name: "Jute Rug", price: 640 },
+    ],
+    steps: [
+      { key: "chair",  photo: "assets/room-02-beanbag.jpg", name: "Lounge Bean Bag",       price: 240,  save: 180 },
+      { key: "sofa",   photo: "assets/room-02-sofa.jpg",    name: "Midnight Blue Sofa",    price: 1180, save: 260 },
+      { key: "coffee", photo: "assets/room-02-table.jpg",   name: "Round Oak Coffee Table", price: 385, save: 95  },
+    ],
+  },
+};
+
 let currentRoom = "room01";
-const sofaHotspot = $("showcase").querySelector(".sofa-hotspot");
-const coffeeHotspot = $("showcase").querySelector(".coffee-hotspot");
-let sofaClicks = 0;
-let coffeeClicks = 0;
-let room02Step = 0;
-sofaHotspot.classList.add("attention");
+let stepIndex = 0;
+let saved = 0;
+// Current pick per role, so a role swapped twice shows only its latest piece.
+let swaps = {};
+
+const steps = () => ROOMS[currentRoom].steps;
+const currentStep = () => steps()[stepIndex];
+const money = n => "$" + n.toLocaleString();
+
+/** Reflect the run's state onto the dots: one live, the rest inert. */
+function syncDots() {
+  const active = currentStep();
+  for (const [key, dot] of Object.entries(dots)) {
+    // A key can appear more than once in a run (room 01 swaps the sofa twice),
+    // so "used up" means no remaining step still needs it.
+    const remaining = steps().slice(stepIndex).some(st => st.key === key);
+    const inRoom = steps().some(st => st.key === key);
+    dot.style.display = inRoom ? "block" : "none";
+    dot.classList.remove("attention", "flash", "done");
+    if (!inRoom) { dot.disabled = true; continue; }
+    if (!remaining) { dot.classList.add("done"); dot.disabled = true; }
+    else if (active && key === active.key) { dot.disabled = false; dot.classList.add("attention"); }
+    else dot.disabled = true;
+  }
+}
+
 function showRoomImage(src) {
   if (roomPhoto.src.endsWith(src)) return;
+  // Fade out, swap at the midpoint, fade back in once the file has decoded -
+  // swapping src directly flashes a half-loaded image.
   roomPhoto.classList.add("is-changing");
-  setTimeout(() => { roomPhoto.src = src; roomPhoto.onload = () => roomPhoto.classList.remove("is-changing"); }, 180);
+  setTimeout(() => {
+    roomPhoto.src = src;
+    roomPhoto.onload = () => roomPhoto.classList.remove("is-changing");
+  }, 180);
 }
+
+let noteTimer;
+/** Name and price the piece just chosen, then get out of the way. */
+function showNote(name, price) {
+  clearTimeout(noteTimer);
+  swapNote.innerHTML = "<strong></strong><span></span>";
+  swapNote.querySelector("strong").textContent = name;
+  swapNote.querySelector("span").textContent = money(price);
+  // Wait for the photo's crossfade so the label lands with the new image.
+  setTimeout(() => swapNote.classList.add("show"), 200);
+  noteTimer = setTimeout(() => swapNote.classList.remove("show"), 3400);
+}
+
+/** Redraw the receipt from the room's baseline plus whatever has been swapped.
+    A swapped line keeps its old price struck through beside the new one, so
+    the saving is visible on the line that produced it, not just in the total. */
+function renderCart(changedKey) {
+  const room = ROOMS[currentRoom];
+  receiptLines.innerHTML = "";
+  for (const line of room.lines) {
+    const swap = swaps[line.key];
+    const row = document.createElement("div");
+    row.className = "receipt-line" + (swap ? " swapped" : "") +
+                    (changedKey === line.key ? " new" : "");
+    const name = document.createElement("span");
+    name.className = "rl-name";
+    name.textContent = swap ? swap.name : line.name;
+    const price = document.createElement("span");
+    price.className = "rl-price";
+    if (swap) {
+      const was = document.createElement("s");
+      was.className = "rl-was";
+      was.textContent = money(line.price);
+      price.append(was, document.createTextNode(money(swap.price)));
+    } else {
+      price.textContent = money(line.price);
+    }
+    row.append(name, price);
+    receiptLines.appendChild(row);
+  }
+
+  // The total is the baseline less every saving taken so far.
+  const total = room.baseline - saved;
+  cartTotal.textContent = money(total);
+  cartSaved.hidden = saved === 0;
+  cartSaved.textContent = saved ? `saved ${money(saved)}` : "";
+  if (saved) {
+    cartTotal.classList.add("dropped");
+    setTimeout(() => cartTotal.classList.remove("dropped"), 900);
+  }
+}
+
+function resetRoom(room) {
+  currentRoom = room;
+  stepIndex = 0;
+  saved = 0;
+  swaps = {};
+  clearTimeout(noteTimer);
+  swapNote.classList.remove("show");
+  cartTotal.classList.remove("dropped");
+  renderCart();
+  syncDots();
+}
+
 document.querySelectorAll("[data-room]").forEach(button => button.addEventListener("click", () => {
   showRoomImage(button.dataset.room);
-  currentRoom = button.dataset.roomKey;
-  sofaClicks = 0; coffeeClicks = 0;
-  room02Step = 0;
-  sofaHotspot.style.display = "block"; coffeeHotspot.style.display = "block";
-  sofaHotspot.classList.remove("attention", "flash"); coffeeHotspot.classList.remove("attention", "flash");
-  if (currentRoom === "room01") sofaHotspot.classList.add("attention");
-  else $("showcase").querySelector(".chair-hotspot").classList.add("attention");
-  $("showcase").querySelector(".chair-hotspot").style.display = currentRoom === "room02" ? "block" : "none";
-  $("showcase").querySelector(".room01-only").style.display = currentRoom === "room01" ? "block" : "none";
-  document.querySelectorAll("[data-room02-label]").forEach(option => { option.textContent = currentRoom === "room02" ? option.dataset.room02Label : option.dataset.room01Label || option.dataset.swap; });
+  resetRoom(button.dataset.roomKey);
   document.querySelectorAll("[data-room]").forEach(b => b.classList.toggle("active", b === button));
 }));
-function hoverMenu(hotspot, panel) {
-  let timer;
-  const open = () => { clearTimeout(timer); hotspot.classList.remove("attention", "flash"); panel.hidden = false; };
-  const close = () => { timer = setTimeout(() => { if (!hotspot.matches(":hover") && !panel.matches(":hover")) panel.hidden = true; }, 120); };
-  hotspot.addEventListener("mouseenter", open); hotspot.addEventListener("mouseleave", close);
-  panel.addEventListener("mouseenter", open); panel.addEventListener("mouseleave", close);
-}
-hoverMenu($("showcase").querySelector(".sofa-hotspot"), swapPanels.sofa);
-hoverMenu($("showcase").querySelector(".coffee-hotspot"), swapPanels.coffee);
-hoverMenu($("showcase").querySelector(".chair-hotspot"), swapPanels.chair);
-const chairHotspot = $("showcase").querySelector(".chair-hotspot");
-document.querySelectorAll("[data-swap]").forEach(button => button.addEventListener("click", () => {
-  if (currentRoom === "room01") {
-    sofaHotspot.classList.remove("attention", "flash"); coffeeHotspot.classList.remove("attention", "flash");
-  }
-  if (currentRoom === "room02") showRoomImage(button.dataset.swap.includes("sofa") ? "assets/room-02-sofa.jpg" : button.dataset.swap.includes("table") ? "assets/room-02-table.jpg" : button.dataset.swap.includes("bean") ? "assets/room-02-beanbag.jpg" : "assets/room-02.png");
-  else showRoomImage(button.dataset.swap.includes("modular") ? "assets/sofa-replacement.jpg" : button.dataset.swap.includes("leather") ? "assets/sofa-leather-replacement.jpg" : "assets/coffee-table-replacement.jpg");
-  const panel = button.parentElement;
-  const hotspot = panel === swapPanels.sofa ? sofaHotspot : panel === swapPanels.coffee ? coffeeHotspot : chairHotspot;
-  const keepRoom01Sofa = currentRoom === "room01" && panel === swapPanels.sofa && ++sofaClicks < 2;
-  hotspot.classList.remove("attention", "flash");
-  if (!keepRoom01Sofa) { hotspot.style.display = "none"; panel.hidden = true; }
-  if (currentRoom === "room01") {
-    const isSofa = button.dataset.swap.includes("sofa");
-    const next = isSofa ? coffeeHotspot : sofaHotspot;
-    next.classList.add(isSofa ? "flash" : "attention");
-  } else if (panel === swapPanels.chair) { room02Step = 1; sofaHotspot.classList.add("attention"); }
-  else if (panel === swapPanels.sofa) { room02Step = 2; coffeeHotspot.classList.add("attention"); }
-  else if (panel === swapPanels.coffee) { room02Step = 3; }
-  button.parentElement.querySelectorAll("button").forEach(b => b.style.borderColor = b === button ? "var(--accent)" : "var(--line)");
-}));
 
+/** One click on the live dot = one frame forward. */
+function advance(key) {
+  const step = currentStep();
+  if (!step || step.key !== key) return;   // not this step's turn
+  showRoomImage(step.photo);
+  showNote(step.name, step.price);
+  saved += step.save;
+  swaps[step.key] = { name: step.name, price: step.price };
+  renderCart(step.key);
+  stepIndex += 1;
+  syncDots();
+  // A brief flash on the newly live dot, so the handoff is visible.
+  const next = currentStep();
+  if (next) {
+    const nd = dots[next.key];
+    nd.classList.remove("attention");
+    nd.classList.add("flash");
+    setTimeout(() => {
+      if (currentStep() === next) { nd.classList.remove("flash"); nd.classList.add("attention"); }
+    }, 2400);
+  }
+}
+Object.entries(dots).forEach(([key, dot]) => dot.addEventListener("click", () => advance(key)));
+
+resetRoom("room01");
+
+/* --- Showcase tabs -------------------------------------------------------
+   Three panels over one card. Each tab owns its own copy for the title and
+   sub, so the card always describes the panel actually on screen. */
+const PANELS = {
+  swap: {
+    title: "Swap a piece, see the room",
+    sub: "Tap the pulsing dot to swap that piece for a better-value pick.",
+  },
+  shop: {
+    title: "One order, two merchants",
+    sub: "Every charge is itemised and named before anything is authorized.",
+  },
+  investigate: {
+    title: "Point at what you already own",
+    sub: "Three pieces were detected. Tap an outline to identify it.",
+  },
+};
+
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+
+function selectPanel(name) {
+  for (const tab of tabs) {
+    const on = tab.dataset.panel === name;
+    tab.classList.toggle("on", on);
+    tab.setAttribute("aria-selected", String(on));
+    // Roving tabindex: only the selected tab is in the tab order, so Tab moves
+    // past the strip rather than through all three.
+    tab.tabIndex = on ? 0 : -1;
+    document.getElementById("panel-" + tab.dataset.panel).hidden = !on;
+  }
+  $("showcase-title").textContent = PANELS[name].title;
+  $("showcase-sub").textContent = PANELS[name].sub;
+  if (name === "investigate") resetInvestigate();
+}
+
+tabs.forEach(tab => tab.addEventListener("click", () => selectPanel(tab.dataset.panel)));
+// Arrow-key navigation, as the tablist pattern expects.
+document.querySelector('[role="tablist"]').addEventListener("keydown", e => {
+  const i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const next = tabs[(i + step + tabs.length) % tabs.length];
+  next.focus();
+  selectPanel(next.dataset.panel);
+});
+
+/* --- Shop: hold to authorize ---------------------------------------------
+   The workspace requires a deliberate press-and-hold to release payment, on
+   the principle that the agent prices an order and the user authorizes it.
+   The hero reproduces the gesture rather than describing it. */
+const HOLD_MS = 1100;
+const holdBtn = $("hold-btn");
+const holdFill = $("hold-fill");
+const holdLabel = $("hold-label");
+let holdStart = 0, holdRaf = 0, holdDone = false;
+
+function holdTick(now) {
+  const pct = Math.min(1, (now - holdStart) / HOLD_MS);
+  holdFill.style.width = (pct * 100) + "%";
+  if (pct >= 1) return finishHold();
+  holdRaf = requestAnimationFrame(holdTick);
+}
+
+function beginHold() {
+  if (holdDone) return;
+  holdStart = performance.now();
+  holdFill.style.transition = "none";
+  holdRaf = requestAnimationFrame(holdTick);
+}
+
+function cancelHold() {
+  if (holdDone) return;
+  cancelAnimationFrame(holdRaf);
+  holdFill.style.transition = "";
+  holdFill.style.width = "0";
+}
+
+function finishHold() {
+  holdDone = true;
+  cancelAnimationFrame(holdRaf);
+  holdFill.style.width = "100%";
+  holdBtn.classList.add("done");
+  holdLabel.textContent = "✓ Authorized · 2 charges placed";
+  $("shop-secure").textContent = "Demo only — no payment was processed and no order was placed.";
+}
+
+holdBtn.addEventListener("pointerdown", beginHold);
+holdBtn.addEventListener("pointerup", cancelHold);
+holdBtn.addEventListener("pointerleave", cancelHold);
+holdBtn.addEventListener("pointercancel", cancelHold);
+// Keyboard equivalent: a hold is a pointer gesture, so Enter/Space authorize
+// outright rather than asking a keyboard user to hold a key down.
+holdBtn.addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); finishHold(); }
+});
+
+/* --- Investigate: reverse image search -----------------------------------
+   A canned run of POST /api/detect?match=true. Boxes are normalized [0,1]
+   exactly as Detection emits them, and `confident` carries the same meaning:
+   false means "the closest thing we sell", not an identification. Live
+   detection needs a vision key and a round trip, neither of which the hero
+   can wait for. */
+const DETECTIONS = [
+  {
+    label: "Sofa", x1: 0.05, y1: 0.53, x2: 0.92, y2: 0.79, confident: true,
+    caption: "curved modular sofa in cream boucle, low rounded arms, plinth base",
+    matches: [
+      { title: "Modular Sofa, boucle", merchant: "Nordhaus", price: "$1,290", score: 0.89, img: "assets/sofa-replacement.jpg" },
+      { title: "Leather Lounge Sofa", merchant: "Cedarline", price: "$1,180", score: 0.72, img: "assets/sofa-leather-replacement.jpg" },
+    ],
+  },
+  {
+    label: "Coffee table", x1: 0.37, y1: 0.69, x2: 0.87, y2: 0.9, confident: true,
+    caption: "round coffee table, pale travertine top, clustered cylindrical legs",
+    matches: [
+      { title: "Organic Wood Table", merchant: "Cedarline", price: "$430", score: 0.86, img: "assets/coffee-table-replacement.jpg" },
+      { title: "Round Oak Coffee Table", merchant: "Nordhaus", price: "$385", score: 0.81, img: "assets/room-02-table.jpg" },
+    ],
+  },
+  {
+    label: "Rug", x1: 0.12, y1: 0.72, x2: 0.93, y2: 0.97, confident: false,
+    caption: "large round rug, textured wool loop pile, warm greige",
+    matches: [
+      { title: "Wool Loop Rug, round", merchant: "Nordhaus", price: "$640", score: 0.44, img: "assets/room-02.png" },
+    ],
+  },
+];
+
+const invFrame = $("inv-frame");
+const invResults = $("inv-results");
+let invDrawn = false;
+
+const escapeHtml = str => str.replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/** Draw the boxes once, on first view of the panel. */
+function drawBoxes() {
+  if (invDrawn) return;
+  invDrawn = true;
+  DETECTIONS.forEach((det, i) => {
+    const box = document.createElement("button");
+    box.className = "inv-box" + (det.y1 < 0.12 ? " low" : "");
+    box.style.left = (det.x1 * 100) + "%";
+    box.style.top = (det.y1 * 100) + "%";
+    box.style.width = ((det.x2 - det.x1) * 100) + "%";
+    box.style.height = ((det.y2 - det.y1) * 100) + "%";
+    box.setAttribute("aria-label", `Identify the ${det.label}`);
+    box.innerHTML = "<b></b>";
+    box.querySelector("b").textContent = det.label;
+    box.addEventListener("click", () => showMatches(i, box));
+    invFrame.appendChild(box);
+  });
+}
+
+function showMatches(index, box) {
+  const det = DETECTIONS[index];
+  invFrame.querySelectorAll(".inv-box").forEach(b => b.classList.toggle("on", b === box));
+
+  const rows = det.matches.map(m => `
+    <div class="inv-match">
+      <img class="inv-swatch" src="${m.img}" alt="">
+      <div class="inv-meta">
+        <strong>${escapeHtml(m.title)}</strong>
+        <span>${escapeHtml(m.merchant)} · ${Math.round(m.score * 100)}% match</span>
+      </div>
+      <span class="inv-price">${escapeHtml(m.price)}</span>
+    </div>`).join("");
+
+  // The confidence flag is the honest part: an unconfident result is phrased as
+  // a nearest neighbour, never as "this is the piece".
+  const flag = det.confident
+    ? '<span class="inv-conf yes">Confident match</span>'
+    : '<span class="inv-conf no">Closest we sell</span>';
+
+  invResults.innerHTML =
+    `<div class="inv-caption">“${escapeHtml(det.caption)}” ${flag}</div>${rows}`;
+}
+
+function resetInvestigate() {
+  drawBoxes();
+  invFrame.querySelectorAll(".inv-box").forEach(b => b.classList.remove("on"));
+  invResults.innerHTML =
+    '<div class="inv-empty">Tap an outlined piece to identify it.</div>';
+  // Replay the scan sweep on each visit; it reads as the detector running.
+  invFrame.classList.remove("scanning");
+  void invFrame.offsetWidth;   // restart the animation
+  invFrame.classList.add("scanning");
+}
 </script>
+
 </body>
 </html>
