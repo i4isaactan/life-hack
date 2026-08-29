@@ -1,0 +1,10 @@
+{
+  "merchant_id":"LR-500",
+  "merchant_name":"Northstar Home",
+  "updated_at":"2026-08-29T04:00:00Z",
+  "items":[
+    {"product_code":"NS-501","name":"Aster 3-Seater Sofa","price":{"value":1599.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Sofas"],"attributes":{"color":"oatmeal","material":"polyester","dimensions":{"width":228,"depth":96,"height":82,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-501.jpg"}],"inventory":{"status":"IN_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-501"}},
+    {"product_code":"NS-502","name":"Cove Boucle Chair","price":{"value":799.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Chairs"],"attributes":{"color":"moss","material":"boucle","dimensions":{"width":82,"depth":86,"height":76,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-502.jpg"}],"inventory":{"status":"IN_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-502"}},
+    {"product_code":"NS-503","name":"Ledger Oak Table","price":{"value":699.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Tables"],"attributes":{"color":"natural","material":"oak","dimensions":{"width":115,"depth":72,"height":38,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-503.jpg"}],"inventory":{"status":"LOW_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-503"}}
+  ]
+}

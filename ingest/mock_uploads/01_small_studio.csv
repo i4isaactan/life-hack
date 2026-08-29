@@ -1,0 +1,4 @@
+sku,name,price,category,colour,material,width_cm,depth_cm,height_cm,image,checkout
+ST-001,Linen Cloud Sofa,1299,sofa,ivory,linen,220,92,80,https://images.example.com/st-001.jpg,https://smallstudio.example.com/cart/ST-001
+ST-002,Oak Pebble Table,499,table,natural,oak,110,70,38,https://images.example.com/st-002.jpg,https://smallstudio.example.com/cart/ST-002
+ST-003,Arc Floor Lamp,189,lighting,black,metal,35,35,165,https://images.example.com/st-003.jpg,https://smallstudio.example.com/cart/ST-003

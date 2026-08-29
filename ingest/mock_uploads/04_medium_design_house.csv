@@ -1,0 +1,4 @@
+item_code,display_name,price,currency,product_type,hue,composition,dimensions,hero_image,buy_link,stock
+DH-301,Modular Cloud Sofa,2450,USD,sofa,warm white,boucle,"240 x 100 x 78 cm",https://img.example.com/dh-301.jpg,https://designhouse.example.com/buy/DH-301,available
+DH-302,Low Tide Table,875,USD,coffee_table,,travertine,"120 x 75 x 35 cm",https://img.example.com/dh-302.jpg,https://designhouse.example.com/buy/DH-302,available
+DH-303,Paper Lantern Pendant,220,USD,lighting,white,paper,,,https://designhouse.example.com/buy/DH-303,available

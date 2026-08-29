@@ -1,0 +1,4 @@
+product_id,product_title,unit_price_usd,department,color,finish,w_in,d_in,h_in,product_image,product_page,availability
+MR-201,Harbor Sectional,1899.99,seating,stone,performance fabric,96,38, thirty,https://cdn.example.com/mr-201.jpg,https://mediumretailer.example.com/p/MR-201,in stock
+MR-202,Drift Round Coffee Table,599.00,living room,walnut,wood,42,30,15,https://cdn.example.com/mr-202.jpg,https://mediumretailer.example.com/p/MR-202,in stock
+MR-203,Frame Wool Rug,399.00,rugs,cream,wool,96,60,0.4,https://cdn.example.com/mr-203.jpg,https://mediumretailer.example.com/p/MR-203,low stock

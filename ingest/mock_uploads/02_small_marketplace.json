@@ -1,0 +1,8 @@
+{
+  "seller": "Moss & Grain",
+  "currency": "USD",
+  "products": [
+    {"id":"MG-11","title":"Boucle Lounge Chair","amount":64900,"type":"accent_chair","finish":"sage","fabric":"boucle","size":{"w":86,"d":84,"h":74},"photo":"https://images.example.com/mg-11.jpg","url":"https://mossgrain.example.com/p/MG-11"},
+    {"id":"MG-12","title":"Hand-thrown Ceramic Lamp","amount":12900,"type":"lighting","finish":"sand","fabric":"ceramic","size":{"w":28,"d":28,"h":42},"photo":"https://images.example.com/mg-12.jpg","url":"https://mossgrain.example.com/p/MG-12"}
+  ]
+}
