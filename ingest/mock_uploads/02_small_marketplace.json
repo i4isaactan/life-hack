@@ -1,8 +1,452 @@
 {
   "seller": "Moss & Grain",
-  "currency": "USD",
   "products": [
-    {"id":"MG-11","title":"Boucle Lounge Chair","amount":64900,"type":"accent_chair","finish":"sage","fabric":"boucle","size":{"w":86,"d":84,"h":74},"photo":"https://images.example.com/mg-11.jpg","url":"https://mossgrain.example.com/p/MG-11"},
-    {"id":"MG-12","title":"Hand-thrown Ceramic Lamp","amount":12900,"type":"lighting","finish":"sand","fabric":"ceramic","size":{"w":28,"d":28,"h":42},"photo":"https://images.example.com/mg-12.jpg","url":"https://mossgrain.example.com/p/MG-12"}
-  ]
+    {
+      "id": "MG-195.747.72",
+      "title": "LILLEHEM 6-seat modular sofa with side table - Gunnared/brown-red wood",
+      "type": "Modular sofas",
+      "amount": 169700,
+      "finish": "brown",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 342,
+        "d": 76,
+        "h": 73
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/lillehem-6-seat-modular-sofa-with-side-table-gunnared-brown-red-wood__1577903_pe1033650_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/lillehem-6-seat-modular-sofa-with-side-table-gunnared-brown-red-wood-s19574772/"
+    },
+    {
+      "id": "MG-496.142.72",
+      "title": "LILLESÄTER 4-seat sofa - Gunnared bright green-yellow",
+      "type": "Three seater sofas",
+      "amount": 115900,
+      "finish": "yellow",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 269,
+        "d": 90,
+        "h": 2
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/lillesaeter-4-seat-sofa-gunnared-bright-green-yellow__1576115_pe1032232_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/lillesaeter-4-seat-sofa-gunnared-bright-green-yellow-s49614272/"
+    },
+    {
+      "id": "MG-696.142.66",
+      "title": "LILLESÄTER 4-seat sofa - Axvall off-white",
+      "type": "Three seater sofas",
+      "amount": 125900,
+      "finish": "white",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 269,
+        "d": 90,
+        "h": 2
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/lillesaeter-4-seat-sofa-axvall-off-white__1576120_pe1032233_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/lillesaeter-4-seat-sofa-axvall-off-white-s69614266/"
+    },
+    {
+      "id": "MG-194.405.89",
+      "title": "KIVIK 3-seat sofa with chaise longue - Tibbleby beige/grey",
+      "type": "Fabric sofas with chaise longues",
+      "amount": 93900,
+      "finish": "beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 280,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-with-chaise-longue-tibbleby-beige-grey__1577304_pe1033080_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-with-chaise-longue-tibbleby-beige-grey-s19440589/"
+    },
+    {
+      "id": "MG-894.848.86",
+      "title": "KIVIK 3-seat sofa with chaise longue - Gunnared medium grey",
+      "type": "Fabric sofas with chaise longues",
+      "amount": 113900,
+      "finish": "grey",
+      "fabric": "polypropylene",
+      "size": null,
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-with-chaise-longue-gunnared-medium-grey__1577027_pe1032903_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-with-chaise-longue-gunnared-medium-grey-s89484886/"
+    },
+    {
+      "id": "MG-094.430.55",
+      "title": "KIVIK 3-seat sofa with chaise longue - Kelinge grey-turquoise",
+      "type": "Fabric sofas with chaise longues",
+      "amount": 105900,
+      "finish": "turquoise",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 280,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-with-chaise-longue-kelinge-grey-turquoise__1577276_pe1033069_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-with-chaise-longue-kelinge-grey-turquoise-s09443055/"
+    },
+    {
+      "id": "MG-594.828.41",
+      "title": "KIVIK 3-seat sofa with chaise longue - Tresund light beige",
+      "type": "Fabric sofas with chaise longues",
+      "amount": 119900,
+      "finish": "light beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 280,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-with-chaise-longue-tresund-light-beige__1577607_pe1033355_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-with-chaise-longue-tresund-light-beige-s59482841/"
+    },
+    {
+      "id": "MG-394.828.42",
+      "title": "KIVIK 3-seat sofa with chaise longue - Tresund anthracite",
+      "type": "Fabric sofas with chaise longues",
+      "amount": 119900,
+      "finish": "red",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 280,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-with-chaise-longue-tresund-anthracite__1577612_pe1033357_s5.jpg",
+      "url": "not-a-url"
+    },
+    {
+      "id": "MG-805.512.29",
+      "title": "FRIHETEN 3-seat sofa-bed - Faringe brown-orange",
+      "type": "Three-seat sofa-beds",
+      "amount": 55900,
+      "finish": "orange",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 144,
+        "d": 105,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/friheten-3-seat-sofa-bed-faringe-brown-orange__1360646_pe954547_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/friheten-3-seat-sofa-bed-faringe-brown-orange-80551229/"
+    },
+    {
+      "id": "MG-405.512.26",
+      "title": "FRIHETEN 3-seat sofa-bed - Faringe light grey",
+      "type": "Three-seat sofa-beds",
+      "amount": 55900,
+      "finish": "light grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 144,
+        "d": 105,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/friheten-3-seat-sofa-bed-faringe-light-grey__1320694_pe941315_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/friheten-3-seat-sofa-bed-faringe-light-grey-40551226/"
+    },
+    {
+      "id": "MG-003.411.36",
+      "title": "FRIHETEN Three-seat sofa-bed - Bomstad black",
+      "type": "Three-seat sofa-beds",
+      "amount": 69900,
+      "finish": "black",
+      "fabric": "polyurethane",
+      "size": {
+        "w": 225,
+        "d": 105,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/friheten-three-seat-sofa-bed-bomstad-black__0325717_pe523061_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/friheten-three-seat-sofa-bed-bomstad-black-00341136/"
+    },
+    {
+      "id": "MG-303.411.49",
+      "title": "FRIHETEN Three-seat sofa-bed - Skiftebo dark grey",
+      "type": "Three-seat sofa-beds",
+      "amount": 55900,
+      "finish": "dark grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 225,
+        "d": 105,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/friheten-three-seat-sofa-bed-skiftebo-dark-grey__0525504_pe644868_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/friheten-three-seat-sofa-bed-skiftebo-dark-grey-30341149/"
+    },
+    {
+      "id": "MG-906.185.02",
+      "title": "GULLVALLA 3-seat sofa - Silkeryd dark grey-beige",
+      "type": "Three seater sofas",
+      "amount": 35900,
+      "finish": "dark grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 182,
+        "d": 83,
+        "h": 78
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/gullvalla-3-seat-sofa-silkeryd-dark-grey-beige__1578444_pe1034087_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/gullvalla-3-seat-sofa-silkeryd-dark-grey-beige-90618502/"
+    },
+    {
+      "id": "MG-006.185.11",
+      "title": "GULLVALLA 3-seat sofa - Silkeryd grey-green",
+      "type": "Three seater sofas",
+      "amount": 35900,
+      "finish": "green",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 182,
+        "d": 83,
+        "h": 78
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/gullvalla-3-seat-sofa-silkeryd-grey-green__1576775_pe1032702_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/gullvalla-3-seat-sofa-silkeryd-grey-green-00618511/"
+    },
+    {
+      "id": "MG-194.405.94",
+      "title": "KIVIK 2-seat sofa - Tibbleby beige/grey",
+      "type": "Two seater sofas",
+      "amount": 50900,
+      "finish": "beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-tibbleby-beige-grey__1577305_pe1033079_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-tibbleby-beige-grey-s19440594/"
+    },
+    {
+      "id": "MG-194.848.61",
+      "title": "KIVIK 2-seat sofa - Gunnared beige",
+      "type": "Two seater sofas",
+      "amount": 63900,
+      "finish": "beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-gunnared-beige__1576990_pe1032875_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-gunnared-beige-s19484861/"
+    },
+    {
+      "id": "MG-294.848.65",
+      "title": "KIVIK 2-seat sofa - Gunnared medium grey",
+      "type": "Two seater sofas",
+      "amount": 63900,
+      "finish": "grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-gunnared-medium-grey__1576995_pe1032882_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-gunnared-medium-grey-s29484865/"
+    },
+    {
+      "id": "MG-194.430.45",
+      "title": "KIVIK 2-seat sofa - Kelinge grey-turquoise",
+      "type": "Two seater sofas",
+      "amount": 58900,
+      "finish": "turquoise",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-kelinge-grey-turquoise__1577273_pe1033061_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-kelinge-grey-turquoise-s19443045/"
+    },
+    {
+      "id": "MG-594.828.22",
+      "title": "KIVIK 2-seat sofa - Tresund light beige",
+      "type": "Two seater sofas",
+      "amount": 67900,
+      "finish": "light beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-tresund-light-beige__1577606_pe1033354_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-tresund-light-beige-s59482822/"
+    },
+    {
+      "id": "MG-794.828.21",
+      "title": "KIVIK 2-seat sofa - Tresund anthracite",
+      "type": "Two seater sofas",
+      "amount": 67900,
+      "finish": "red",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 190,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-tresund-anthracite__1577610_pe1033358_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-tresund-anthracite-s79482821/"
+    },
+    {
+      "id": "MG-894.848.72",
+      "title": "KIVIK 3-seat sofa - Gunnared beige",
+      "type": "Three seater sofas",
+      "amount": 75900,
+      "finish": "beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-gunnared-beige__1577008_pe1032893_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-gunnared-beige-s89484872/"
+    },
+    {
+      "id": "MG-194.430.50",
+      "title": "KIVIK 3-seat sofa - Kelinge grey-turquoise",
+      "type": "Three seater sofas",
+      "amount": 70900,
+      "finish": "turquoise",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-kelinge-grey-turquoise__1577275_pe1033058_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-kelinge-grey-turquoise-s19443050/"
+    },
+    {
+      "id": "MG-994.848.76",
+      "title": "KIVIK 3-seat sofa - Gunnared medium grey",
+      "type": "Three seater sofas",
+      "amount": 75900,
+      "finish": "grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-gunnared-medium-grey__1577019_pe1032897_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-gunnared-medium-grey-s99484876/"
+    },
+    {
+      "id": "MG-594.405.92",
+      "title": "KIVIK 3-seat sofa - Tibbleby beige/grey",
+      "type": "Three seater sofas",
+      "amount": 63900,
+      "finish": "beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-tibbleby-beige-grey__1577303_pe1033081_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-tibbleby-beige-grey-s59440592/"
+    },
+    {
+      "id": "MG-694.828.31",
+      "title": "KIVIK 3-seat sofa - Tresund anthracite",
+      "type": "Three seater sofas",
+      "amount": 80900,
+      "finish": "red",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-tresund-anthracite__1577611_pe1033359_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-tresund-anthracite-s69482831/"
+    },
+    {
+      "id": "MG-494.828.32",
+      "title": "KIVIK 3-seat sofa - Tresund light beige",
+      "type": "Three seater sofas",
+      "amount": 80900,
+      "finish": "light beige",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 228,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-tresund-light-beige__1577609_pe1033360_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-tresund-light-beige-s49482832/"
+    },
+    {
+      "id": "MG-805.195.26",
+      "title": "KIVIK 3-seat sofa - Grann/Bomstad black",
+      "type": "Three seater sofas",
+      "amount": 129900,
+      "finish": "black",
+      "fabric": "polyurethane",
+      "size": {
+        "w": 227,
+        "d": 95,
+        "h": 83
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/kivik-3-seat-sofa-grann-bomstad-black__0137863_pe296632_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/kivik-3-seat-sofa-grann-bomstad-black-80519526/"
+    },
+    {
+      "id": "MG-305.062.44",
+      "title": "ÄPPLARYD 3-seat sofa - Lejde light grey",
+      "type": "Three seater sofas",
+      "amount": 119900,
+      "finish": "light grey",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 231,
+        "d": 93,
+        "h": 82
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-lejde-light-grey__0992909_pe820327_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-lejde-light-grey-30506244/"
+    },
+    {
+      "id": "MG-405.062.34",
+      "title": "ÄPPLARYD 3-seat sofa - Lejde grey/black",
+      "type": "Three seater sofas",
+      "amount": 119900,
+      "finish": "black",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 231,
+        "d": 93,
+        "h": 82
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-lejde-grey-black__1577350_pe1033131_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-lejde-grey-black-40506234/"
+    },
+    {
+      "id": "MG-005.750.88",
+      "title": "ÄPPLARYD 3-seat sofa - Gunnared light blue",
+      "type": "Three seater sofas",
+      "amount": 111900,
+      "finish": "blue",
+      "fabric": "polypropylene",
+      "size": {
+        "w": 231,
+        "d": 93,
+        "h": 82
+      },
+      "photo": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-gunnared-light-blue__1577866_pe1033612_s5.jpg",
+      "url": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-gunnared-light-blue-00575088/"
+    }
+  ],
+  "currency": "SGD"
 }

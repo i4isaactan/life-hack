@@ -1,10 +1,3406 @@
 {
-  "merchant_id":"LR-500",
-  "merchant_name":"Northstar Home",
-  "updated_at":"2026-08-29T04:00:00Z",
-  "items":[
-    {"product_code":"NS-501","name":"Aster 3-Seater Sofa","price":{"value":1599.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Sofas"],"attributes":{"color":"oatmeal","material":"polyester","dimensions":{"width":228,"depth":96,"height":82,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-501.jpg"}],"inventory":{"status":"IN_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-501"}},
-    {"product_code":"NS-502","name":"Cove Boucle Chair","price":{"value":799.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Chairs"],"attributes":{"color":"moss","material":"boucle","dimensions":{"width":82,"depth":86,"height":76,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-502.jpg"}],"inventory":{"status":"IN_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-502"}},
-    {"product_code":"NS-503","name":"Ledger Oak Table","price":{"value":699.0,"currency":"USD"},"taxonomy":["Furniture","Living Room","Tables"],"attributes":{"color":"natural","material":"oak","dimensions":{"width":115,"depth":72,"height":38,"unit":"cm"}},"media":[{"url":"https://northstar.example.com/img/ns-503.jpg"}],"inventory":{"status":"LOW_STOCK"},"links":{"checkout":"https://northstar.example.com/checkout/ns-503"}}
-  ]
+  "merchant_id": "LR-500",
+  "items": [
+    {
+      "product_code": "NS-295.774.97",
+      "name": "LILLEHEM 2-seat module - Gunnared/brown-red metal",
+      "price": {
+        "currency": "SGD",
+        "value": 289
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 72,
+          "width": 144,
+          "height": 20,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-2-seat-module-gunnared-brown-red-metal__1577912_pe1033658_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-2-seat-module-gunnared-brown-red-metal-s29577497/"
+      }
+    },
+    {
+      "product_code": "NS-195.775.15",
+      "name": "LILLEHEM 2-seat module - Gunnared/dark grey wood",
+      "price": {
+        "currency": "SGD",
+        "value": 289
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 72,
+          "width": 144,
+          "height": 20,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-2-seat-module-gunnared-dark-grey-wood__1577899_pe1033645_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-2-seat-module-gunnared-dark-grey-wood-s19577515/"
+      }
+    },
+    {
+      "product_code": "NS-195.775.01",
+      "name": "LILLEHEM 2-seat module - Gunnared/brown-red wood",
+      "price": {
+        "currency": "SGD",
+        "value": 289
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 72,
+          "width": 144,
+          "height": 20,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-2-seat-module-gunnared-brown-red-wood__1577910_pe1033660_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-2-seat-module-gunnared-brown-red-wood-s19577501/"
+      }
+    },
+    {
+      "product_code": "NS-995.775.21",
+      "name": "LILLEHEM 2-seat module - Vissle/beige metal",
+      "price": {
+        "currency": "SGD",
+        "value": 269
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 72,
+          "width": 144,
+          "height": 20,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-2-seat-module-vissle-beige-metal__1577914_pe1033656_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-2-seat-module-vissle-beige-metal-s99577521/"
+      }
+    },
+    {
+      "product_code": "NS-895.775.26",
+      "name": "LILLEHEM 2-seat module - Vissle/beige wood",
+      "price": {
+        "currency": "SGD",
+        "value": 269
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 72,
+          "width": 144,
+          "height": 20,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-2-seat-module-vissle-beige-wood__1577911_pe1033657_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-2-seat-module-vissle-beige-wood-s89577526/"
+      }
+    },
+    {
+      "product_code": "NS-995.281.73",
+      "name": "ÄPPLARYD 3-seat sofa with chaise longue - Gunnared light blue",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": null,
+          "width": null,
+          "height": null,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-with-chaise-longue-gunnared-light-blue__1577861_pe1033607_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-with-chaise-longue-gunnared-light-blue-s99528173/"
+      }
+    },
+    {
+      "product_code": "NS-894.180.52",
+      "name": "ÄPPLARYD 3-seat sofa with chaise longue - Lejde light grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1599
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "light grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 93,
+          "width": 290,
+          "height": 82,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-with-chaise-longue-lejde-light-grey__1577354_pe1033132_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-with-chaise-longue-lejde-light-grey-s89418052/"
+      }
+    },
+    {
+      "product_code": "NS-794.180.43",
+      "name": "ÄPPLARYD 3-seat sofa with chaise longue - Lejde grey/black",
+      "price": {
+        "currency": "SGD",
+        "value": 1599
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 93,
+          "width": 290,
+          "height": 82,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-with-chaise-longue-lejde-grey-black__1577351_pe1033135_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-with-chaise-longue-lejde-grey-black-s79418043/"
+      }
+    },
+    {
+      "product_code": "NS-595.281.70",
+      "name": "ÄPPLARYD 3-seat sofa with chaise longue - Gunnared black/grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": null,
+          "width": null,
+          "height": null,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/aepplaryd-3-seat-sofa-with-chaise-longue-gunnared-black-grey__1577850_pe1033596_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/aepplaryd-3-seat-sofa-with-chaise-longue-gunnared-black-grey-s59528170/"
+      }
+    },
+    {
+      "product_code": "NS-302.450.44",
+      "name": "STOCKHOLM Three-seat sofa - Seglora natural",
+      "price": {
+        "currency": "SGD",
+        "value": 2990
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "natural",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 88,
+          "width": 211,
+          "height": 80,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-three-seat-sofa-seglora-natural__0183763_pe334809_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-three-seat-sofa-seglora-natural-30245044/"
+      }
+    },
+    {
+      "product_code": "NS-494.714.85",
+      "name": "JÄTTEBO 1-seat module with storage - Samsala grey-beige",
+      "price": {
+        "currency": "SGD",
+        "value": 540
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 70,
+          "height": 71,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/jaettebo-1-seat-module-with-storage-samsala-grey-beige__1577514_pe1033265_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/jaettebo-1-seat-module-with-storage-samsala-grey-beige-s49471485/"
+      }
+    },
+    {
+      "product_code": "NS-096.075.65",
+      "name": "JÄTTEBO 1-seat module with storage - Samsala dark blue",
+      "price": {
+        "currency": "SGD",
+        "value": 540
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 70,
+          "height": 71,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/jaettebo-1-seat-module-with-storage-samsala-dark-blue__1578408_pe1034062_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/jaettebo-1-seat-module-with-storage-samsala-dark-blue-s09607565/"
+      }
+    },
+    {
+      "product_code": "NS-194.714.77",
+      "name": "JÄTTEBO 1-seat module with storage - Samsala dark yellow-green",
+      "price": {
+        "currency": "SGD",
+        "value": 540
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "yellow",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": null,
+          "height": 71,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/jaettebo-1-seat-module-with-storage-samsala-dark-yellow-green__1577511_pe1033268_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/jaettebo-1-seat-module-with-storage-samsala-dark-yellow-green-s19471477/"
+      }
+    },
+    {
+      "product_code": "NS-694.848.25",
+      "name": "KIVIK 4-seat sofa with chaise longue - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1259
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-gunnared-beige__1577099_pe1032938_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-gunnared-beige-s69484825/"
+      }
+    },
+    {
+      "product_code": "NS-894.848.29",
+      "name": "KIVIK 4-seat sofa with chaise longue - Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1259
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-gunnared-medium-grey__1577119_pe1032954_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-gunnared-medium-grey-s89484829/"
+      }
+    },
+    {
+      "product_code": "NS-294.405.84",
+      "name": "KIVIK 4-seat sofa with chaise longue - Tibbleby beige/grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1069
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-tibbleby-beige-grey__1577302_pe1033078_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-tibbleby-beige-grey-s29440584/"
+      }
+    },
+    {
+      "product_code": "NS-094.430.60",
+      "name": "KIVIK 4-seat sofa with chaise longue - Kelinge grey-turquoise",
+      "price": {
+        "currency": "SGD",
+        "value": 1179
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "turquoise",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-kelinge-grey-turquoise__1577295_pe1033070_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-kelinge-grey-turquoise-s09443060/"
+      }
+    },
+    {
+      "product_code": "NS-994.943.85",
+      "name": "KIVIK 4-seat sofa with chaise longue - Tresund anthracite",
+      "price": {
+        "currency": "SGD",
+        "value": 1329
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "red",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-tresund-anthracite__1577810_pe1033545_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-tresund-anthracite-s99494385/"
+      }
+    },
+    {
+      "product_code": "NS-394.943.88",
+      "name": "KIVIK 4-seat sofa with chaise longue - Tresund light beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1329
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 318,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-4-seat-sofa-with-chaise-longue-tresund-light-beige__1577809_pe1033546_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-4-seat-sofa-with-chaise-longue-tresund-light-beige-s39494388/"
+      }
+    },
+    {
+      "product_code": "NS-393.062.93",
+      "name": "VIMLE 2-seat sofa - Grann/Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 1119
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 171,
+          "height": 80,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-2-seat-sofa-grann-bomstad-black__1577098_pe1032939_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-2-seat-sofa-grann-bomstad-black-s39306293/"
+      }
+    },
+    {
+      "product_code": "NS-793.991.10",
+      "name": "VIMLE 3-seat sofa - with chaise longue/Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1139
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 252,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-sofa-with-chaise-longue-gunnared-beige__0514360_pe639436_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-sofa-with-chaise-longue-gunnared-beige-s79399110/"
+      }
+    },
+    {
+      "product_code": "NS-193.991.13",
+      "name": "VIMLE 3-seat sofa - with chaise longue/Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1139
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 252,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-sofa-with-chaise-longue-gunnared-medium-grey__0514362_pe639437_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-sofa-with-chaise-longue-gunnared-medium-grey-s19399113/"
+      }
+    },
+    {
+      "product_code": "NS-993.994.87",
+      "name": "VIMLE 4-seat sofa with chaise longue - Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1269
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 322,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-4-seat-sofa-with-chaise-longue-gunnared-medium-grey__0514365_pe639438_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-4-seat-sofa-with-chaise-longue-gunnared-medium-grey-s99399487/"
+      }
+    },
+    {
+      "product_code": "NS-693.994.84",
+      "name": "VIMLE 4-seat sofa with chaise longue - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1269
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 322,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-4-seat-sofa-with-chaise-longue-gunnared-beige__0514363_pe639433_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-4-seat-sofa-with-chaise-longue-gunnared-beige-s69399484/"
+      }
+    },
+    {
+      "product_code": "NS-495.374.05",
+      "name": "EKHOLMA 2-seat sofa - Kilanda brown-red",
+      "price": {
+        "currency": "SGD",
+        "value": 609
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 85,
+          "width": 167,
+          "height": 94,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ekholma-2-seat-sofa-kilanda-brown-red__1577918_pe1033668_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ekholma-2-seat-sofa-kilanda-brown-red-s49537405/"
+      }
+    },
+    {
+      "product_code": "NS-195.374.02",
+      "name": "EKHOLMA 2-seat sofa - Hakebo dark grey",
+      "price": {
+        "currency": "SGD",
+        "value": 559
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 85,
+          "width": 167,
+          "height": 94,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ekholma-2-seat-sofa-hakebo-dark-grey__1577920_pe1033666_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://unverified.example.invalid/pay"
+      }
+    },
+    {
+      "product_code": "NS-095.374.07",
+      "name": "EKHOLMA 2-seat sofa - Kilanda light beige",
+      "price": {
+        "currency": "SGD",
+        "value": 609
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 85,
+          "width": 167,
+          "height": 94,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ekholma-2-seat-sofa-kilanda-light-beige__1577947_pe1033693_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ekholma-2-seat-sofa-kilanda-light-beige-s09537407/"
+      }
+    },
+    {
+      "product_code": "NS-995.373.99",
+      "name": "EKHOLMA 2-seat sofa - Hakebo beige",
+      "price": {
+        "currency": "SGD",
+        "value": 559
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 85,
+          "width": 167,
+          "height": 94,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ekholma-2-seat-sofa-hakebo-beige__1577915_pe1033661_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ekholma-2-seat-sofa-hakebo-beige-s99537399/"
+      }
+    },
+    {
+      "product_code": "NS-705.943.85",
+      "name": "SLATORP 3-seat sofa - Hakebo dark grey",
+      "price": {
+        "currency": "SGD",
+        "value": 899
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 246,
+          "height": 60,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/slatorp-3-seat-sofa-hakebo-dark-grey__1578008_pe1033711_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/slatorp-3-seat-sofa-hakebo-dark-grey-70594385/"
+      }
+    },
+    {
+      "product_code": "NS-905.943.89",
+      "name": "SLATORP 3-seat sofa - Hakebo yellow-brown",
+      "price": {
+        "currency": "SGD",
+        "value": 899
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "yellow",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 246,
+          "height": 60,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/slatorp-3-seat-sofa-hakebo-yellow-brown__1578005_pe1033708_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/slatorp-3-seat-sofa-hakebo-yellow-brown-90594389/"
+      }
+    },
+    {
+      "product_code": "NS-305.943.68",
+      "name": "SLATORP 3-seat sofa - Vissle yellow-green",
+      "price": {
+        "currency": "SGD",
+        "value": 899
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "yellow",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 246,
+          "height": 60,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/slatorp-3-seat-sofa-vissle-yellow-green__1578010_pe1033713_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/slatorp-3-seat-sofa-vissle-yellow-green-30594368/"
+      }
+    },
+    {
+      "product_code": "NS-894.013.01",
+      "name": "VIMLE 3-seat sofa with chaise longue - with headrest/Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1209
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 252,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-sofa-with-chaise-longue-with-headrest-gunnared-beige__0579304_pe675191_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-sofa-with-chaise-longue-with-headrest-gunnared-beige-s89401301/"
+      }
+    },
+    {
+      "product_code": "NS-393.991.07",
+      "name": "VIMLE 3-seat sofa with chaise longue - with headrest/Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1209
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 252,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-sofa-with-chaise-longue-with-headrest-gunnared-medium-grey__0579295_pe675187_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-sofa-with-chaise-longue-with-headrest-gunnared-medium-grey-s39399107/"
+      }
+    },
+    {
+      "product_code": "NS-696.153.36",
+      "name": "VALNÄS 3-seat sofa - Knäbäck light beige",
+      "price": {
+        "currency": "SGD",
+        "value": 999
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 94,
+          "width": 246,
+          "height": 90,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/valnaes-3-seat-sofa-knaebaeck-light-beige__1576545_pe1032527_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/valnaes-3-seat-sofa-knaebaeck-light-beige-s69615336/"
+      }
+    },
+    {
+      "product_code": "NS-696.192.02",
+      "name": "MANNARP 4-seat sofa with chaise longue - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 949
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 97,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-gunnared-beige__1578537_pe1034176_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-gunnared-beige-s69619202/"
+      }
+    },
+    {
+      "product_code": "NS-596.040.79",
+      "name": "MANNARP 4-seat sofa with chaise longue - Saxemara black-blue",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 96,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-saxemara-black-blue__1578281_pe1033948_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-saxemara-black-blue-s59604079/"
+      }
+    },
+    {
+      "product_code": "NS-496.192.03",
+      "name": "MANNARP 4-seat sofa with chaise longue - Saxemara black-blue",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 97,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-saxemara-black-blue__1578544_pe1034183_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-saxemara-black-blue-s49619203/"
+      }
+    },
+    {
+      "product_code": "NS-396.040.75",
+      "name": "MANNARP 4-seat sofa with chaise longue - Saxemara grey-beige",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 96,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-saxemara-grey-beige__1578301_pe1033967_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-saxemara-grey-beige-s39604075/"
+      }
+    },
+    {
+      "product_code": "NS-296.192.04",
+      "name": "MANNARP 4-seat sofa with chaise longue - Saxemara grey-beige",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 97,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-saxemara-grey-beige__1578533_pe1034172_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-saxemara-grey-beige-s29619204/"
+      }
+    },
+    {
+      "product_code": "NS-296.040.71",
+      "name": "MANNARP 4-seat sofa with chaise longue - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 949
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 95,
+          "width": 269,
+          "height": 96,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/mannarp-4-seat-sofa-with-chaise-longue-gunnared-beige__1578269_pe1033937_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/mannarp-4-seat-sofa-with-chaise-longue-gunnared-beige-s29604071/"
+      }
+    },
+    {
+      "product_code": "NS-994.158.21",
+      "name": "LANDSKRONA 3-seat sofa - Djuparp dark blue/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-djuparp-dark-blue-metal__0990600_pe819084_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-djuparp-dark-blue-metal-s99415821/"
+      }
+    },
+    {
+      "product_code": "NS-394.158.24",
+      "name": "LANDSKRONA 3-seat sofa - Djuparp dark blue/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-djuparp-dark-blue-wood__0990602_pe819086_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-djuparp-dark-blue-wood-s39415824/"
+      }
+    },
+    {
+      "product_code": "NS-292.703.22",
+      "name": "LANDSKRONA 3-seat sofa - Gunnared light green/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-gunnared-light-green-metal__1576918_pe1032815_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-gunnared-light-green-metal-s29270322/"
+      }
+    },
+    {
+      "product_code": "NS-192.703.27",
+      "name": "LANDSKRONA 3-seat sofa - Gunnared light green/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-gunnared-light-green-wood__1576917_pe1032814_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-gunnared-light-green-wood-s19270327/"
+      }
+    },
+    {
+      "product_code": "NS-392.703.12",
+      "name": "LANDSKRONA 3-seat sofa - Gunnared dark grey/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-gunnared-dark-grey-wood__1576951_pe1032842_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-gunnared-dark-grey-wood-s39270312/"
+      }
+    },
+    {
+      "product_code": "NS-392.703.07",
+      "name": "LANDSKRONA 3-seat sofa - Gunnared dark grey/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 769
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 204,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-3-seat-sofa-gunnared-dark-grey-metal__1576950_pe1032845_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-3-seat-sofa-gunnared-dark-grey-metal-s39270307/"
+      }
+    },
+    {
+      "product_code": "NS-093.067.65",
+      "name": "VIMLE Corner sofa, 5-seat - with chaise longue/Grann/Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 3468
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Corner sofas"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 330,
+          "height": 80,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-corner-sofa-5-seat-with-chaise-longue-grann-bomstad-black__0817692_pe776083_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-corner-sofa-5-seat-with-chaise-longue-grann-bomstad-black-s09306765/"
+      }
+    },
+    {
+      "product_code": "NS-796.199.18",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Johanneshov brown-beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1870
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-brown-beige__1576399_pe1032454_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-brown-beige-s79619918/"
+      }
+    },
+    {
+      "product_code": "NS-596.199.24",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Axvall off-white",
+      "price": {
+        "currency": "SGD",
+        "value": 1620
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "white",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-off-white__1576415_pe1032464_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-off-white-s59619924/"
+      }
+    },
+    {
+      "product_code": "NS-196.199.21",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Johanneshov dark grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1870
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-dark-grey__1576402_pe1032457_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-dark-grey-s19619921/"
+      }
+    },
+    {
+      "product_code": "NS-896.199.27",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Axvall dark grey-blue",
+      "price": {
+        "currency": "SGD",
+        "value": 1620
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-dark-grey-blue__1576417_pe1032466_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-dark-grey-blue-s89619927/"
+      }
+    },
+    {
+      "product_code": "NS-796.199.42",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Johanneshov dark grey",
+      "price": {
+        "currency": "SGD",
+        "value": 1870
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-dark-grey__1576440_pe1032486_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-dark-grey-s79619942/"
+      }
+    },
+    {
+      "product_code": "NS-496.199.48",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Axvall dark grey-blue",
+      "price": {
+        "currency": "SGD",
+        "value": 1620
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-dark-grey-blue__1576435_pe1032484_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-axvall-dark-grey-blue-s49619948/"
+      }
+    },
+    {
+      "product_code": "NS-396.199.39",
+      "name": "UPPÅKRA 3-seat modular sofa - with chaise longue, left/Johanneshov brown-beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1870
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polyester wadding",
+        "dimensions": {
+          "depth": 180,
+          "width": 250,
+          "height": 95,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-brown-beige__1576413_pe1032462_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/uppakra-3-seat-modular-sofa-with-chaise-longue-left-johanneshov-brown-beige-s39619939/"
+      }
+    },
+    {
+      "product_code": "NS-995.743.01",
+      "name": "STOCKHOLM 2025 3-seat sofa - Alhamn dark turquoise",
+      "price": {
+        "currency": "SGD",
+        "value": 2199
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "turquoise",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 243,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-3-seat-sofa-alhamn-dark-turquoise__1578078_pe1033768_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-3-seat-sofa-alhamn-dark-turquoise-s99574301/"
+      }
+    },
+    {
+      "product_code": "NS-895.742.93",
+      "name": "STOCKHOLM 2025 3-seat sofa - Alhamn beige",
+      "price": {
+        "currency": "SGD",
+        "value": 2199
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 243,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-3-seat-sofa-alhamn-beige__1577937_pe1033679_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-3-seat-sofa-alhamn-beige-s89574293/"
+      }
+    },
+    {
+      "product_code": "NS-395.743.04",
+      "name": "STOCKHOLM 2025 3-seat sofa - Djurmo grey/white",
+      "price": {
+        "currency": "SGD",
+        "value": 2199
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "white",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 243,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-3-seat-sofa-djurmo-grey-white__1577931_pe1033677_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-3-seat-sofa-djurmo-grey-white-s39574304/"
+      }
+    },
+    {
+      "product_code": "NS-195.742.96",
+      "name": "STOCKHOLM 2025 3-seat sofa - Alhamn dark brown",
+      "price": {
+        "currency": "SGD",
+        "value": 2199
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 243,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-3-seat-sofa-alhamn-dark-brown__1577930_pe1033676_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-3-seat-sofa-alhamn-dark-brown-s19574296/"
+      }
+    },
+    {
+      "product_code": "NS-594.158.42",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Djuparp dark blue/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-djuparp-dark-blue-wood__0990585_pe819070_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-djuparp-dark-blue-wood-s59415842/"
+      }
+    },
+    {
+      "product_code": "NS-194.158.39",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Djuparp dark blue/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-djuparp-dark-blue-metal__0990583_pe819068_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-djuparp-dark-blue-metal-s19415839/"
+      }
+    },
+    {
+      "product_code": "NS-192.699.94",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Gunnared light green/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-gunnared-light-green-wood__0602500_pe680408_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-gunnared-light-green-wood-s19269994/"
+      }
+    },
+    {
+      "product_code": "NS-192.699.89",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Gunnared light green/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-gunnared-light-green-metal__0602498_pe680406_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-gunnared-light-green-metal-s19269989/"
+      }
+    },
+    {
+      "product_code": "NS-492.699.78",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Gunnared dark grey/metal",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-gunnared-dark-grey-metal__1577148_pe1032979_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-gunnared-dark-grey-metal-s49269978/"
+      }
+    },
+    {
+      "product_code": "NS-092.699.80",
+      "name": "LANDSKRONA 5-seat sofa - with chaise longues/Gunnared dark grey/wood",
+      "price": {
+        "currency": "SGD",
+        "value": 2029
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 89,
+          "width": 360,
+          "height": 78,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/landskrona-5-seat-sofa-with-chaise-longues-gunnared-dark-grey-wood__1577147_pe1032978_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/landskrona-5-seat-sofa-with-chaise-longues-gunnared-dark-grey-wood-s09269980/"
+      }
+    },
+    {
+      "product_code": "NS-895.704.07",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Gunnared/brown-red wood",
+      "price": {
+        "currency": "SGD",
+        "value": 1003
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-brown-red-wood__1577884_pe1033628_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-brown-red-wood-s89570407/"
+      }
+    },
+    {
+      "product_code": "NS-695.704.08",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Gunnared/dark grey metal",
+      "price": {
+        "currency": "SGD",
+        "value": 1003
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-dark-grey-metal__1577879_pe1033621_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-dark-grey-metal-s69570408/"
+      }
+    },
+    {
+      "product_code": "NS-495.704.09",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Gunnared/dark grey wood",
+      "price": {
+        "currency": "SGD",
+        "value": 1003
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-dark-grey-wood__1577875_pe1033625_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-dark-grey-wood-s49570409/"
+      }
+    },
+    {
+      "product_code": "NS-095.704.06",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Gunnared/brown-red metal",
+      "price": {
+        "currency": "SGD",
+        "value": 1003
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-brown-red-metal__1577878_pe1033624_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-gunnared-brown-red-metal-s09570406/"
+      }
+    },
+    {
+      "product_code": "NS-895.704.12",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Vissle/beige wood",
+      "price": {
+        "currency": "SGD",
+        "value": 913
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-vissle-beige-wood__1577873_pe1033619_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-vissle-beige-wood-s89570412/"
+      }
+    },
+    {
+      "product_code": "NS-095.704.11",
+      "name": "LILLEHEM 3-seat modular sofa w chaise longue - Vissle/beige metal",
+      "price": {
+        "currency": "SGD",
+        "value": 913
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 76,
+          "width": 224,
+          "height": 73,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/lillehem-3-seat-modular-sofa-w-chaise-longue-vissle-beige-metal__1577877_pe1033623_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/lillehem-3-seat-modular-sofa-w-chaise-longue-vissle-beige-metal-s09570411/"
+      }
+    },
+    {
+      "product_code": "NS-105.195.20",
+      "name": "KIVIK 2-seat sofa - Grann/Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 1199
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polyurethane",
+        "dimensions": {
+          "depth": 95,
+          "width": 190,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/kivik-2-seat-sofa-grann-bomstad-black__1578506_pe1034149_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/kivik-2-seat-sofa-grann-bomstad-black-10519520/"
+      }
+    },
+    {
+      "product_code": "NS-795.452.63",
+      "name": "VIMLE 2-seat sofa-bed section - Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 140,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-2-seat-sofa-bed-section-gunnared-medium-grey__0685988_pe721515_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-2-seat-sofa-bed-section-gunnared-medium-grey-s79545263/"
+      }
+    },
+    {
+      "product_code": "NS-395.452.22",
+      "name": "VIMLE 2-seat sofa-bed section - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 969
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 140,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-2-seat-sofa-bed-section-gunnared-beige__0685982_pe721509_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-2-seat-sofa-bed-section-gunnared-beige-s39545222/"
+      }
+    },
+    {
+      "product_code": "NS-595.371.03",
+      "name": "VIMLE 2-seat sofa-bed section - Hallarp beige",
+      "price": {
+        "currency": "SGD",
+        "value": 959
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 140,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-2-seat-sofa-bed-section-hallarp-beige__0949352_pe799657_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "CHECK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-2-seat-sofa-bed-section-hallarp-beige-s59537103/"
+      }
+    },
+    {
+      "product_code": "NS-795.743.21",
+      "name": "STOCKHOLM 2025 4-seat sofa - Djurmo grey/white",
+      "price": {
+        "currency": "SGD",
+        "value": 2699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "white",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 308,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-4-seat-sofa-djurmo-grey-white__1577936_pe1033682_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-4-seat-sofa-djurmo-grey-white-s79574321/"
+      }
+    },
+    {
+      "product_code": "NS-795.743.16",
+      "name": "STOCKHOLM 2025 4-seat sofa - Alhamn dark turquoise",
+      "price": {
+        "currency": "SGD",
+        "value": 2699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "turquoise",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 308,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-4-seat-sofa-alhamn-dark-turquoise__1578076_pe1033765_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-4-seat-sofa-alhamn-dark-turquoise-s79574316/"
+      }
+    },
+    {
+      "product_code": "NS-495.743.13",
+      "name": "STOCKHOLM 2025 4-seat sofa - Alhamn dark brown",
+      "price": {
+        "currency": "SGD",
+        "value": 2699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 308,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-4-seat-sofa-alhamn-dark-brown__1577933_pe1033683_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-4-seat-sofa-alhamn-dark-brown-s49574313/"
+      }
+    },
+    {
+      "product_code": "NS-495.743.08",
+      "name": "STOCKHOLM 2025 4-seat sofa - Alhamn beige",
+      "price": {
+        "currency": "SGD",
+        "value": 2699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 308,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-4-seat-sofa-alhamn-beige__1577932_pe1033678_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-4-seat-sofa-alhamn-beige-s49574308/"
+      }
+    },
+    {
+      "product_code": "NS-793.924.58",
+      "name": "VIMLE 3-seat section - Gunnared beige",
+      "price": {
+        "currency": "SGD",
+        "value": 619
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 211,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-section-gunnared-beige__0531865_pe647607_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-section-gunnared-beige-s79392458/"
+      }
+    },
+    {
+      "product_code": "NS-993.924.57",
+      "name": "VIMLE 3-seat section - Gunnared medium grey",
+      "price": {
+        "currency": "SGD",
+        "value": 619
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 211,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-section-gunnared-medium-grey__0531887_pe647626_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-section-gunnared-medium-grey-s99392457/"
+      }
+    },
+    {
+      "product_code": "NS-893.924.67",
+      "name": "VIMLE 3-seat section - Hallarp beige",
+      "price": {
+        "currency": "SGD",
+        "value": 539
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 211,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-section-hallarp-beige__0949349_pe799660_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-section-hallarp-beige-s89392467/"
+      }
+    },
+    {
+      "product_code": "NS-293.924.70",
+      "name": "VIMLE 3-seat section - Hallarp grey",
+      "price": {
+        "currency": "SGD",
+        "value": 539
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Modular sofas"
+      ],
+      "attributes": {
+        "color": "grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 211,
+          "height": 83,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-3-seat-section-hallarp-grey__0949356_pe799664_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-3-seat-section-hallarp-grey-s29392470/"
+      }
+    },
+    {
+      "product_code": "NS-293.062.79",
+      "name": "VIMLE Corner sofa, 4-seat - with open end with headrests/Grann/Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 2644
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Corner sofas"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 249,
+          "height": 80,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-corner-sofa-4-seat-with-open-end-with-headrests-grann-bomstad-black__1577092_pe1032931_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-corner-sofa-4-seat-with-open-end-with-headrests-grann-bomstad-black-s29306279/"
+      }
+    },
+    {
+      "product_code": "NS-195.090.17",
+      "name": "EKTORP 2-seat sofa - Hakebo grey-green",
+      "price": {
+        "currency": "SGD",
+        "value": 529
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 179,
+          "height": 88,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ektorp-2-seat-sofa-hakebo-grey-green__1577713_pe1033460_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ektorp-2-seat-sofa-hakebo-grey-green-s19509017/"
+      }
+    },
+    {
+      "product_code": "NS-895.090.14",
+      "name": "EKTORP 2-seat sofa - Hakebo dark grey",
+      "price": {
+        "currency": "SGD",
+        "value": 529
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "dark grey",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 179,
+          "height": 88,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ektorp-2-seat-sofa-hakebo-dark-grey__1577718_pe1033462_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ektorp-2-seat-sofa-hakebo-dark-grey-s89509014/"
+      }
+    },
+    {
+      "product_code": "NS-295.090.26",
+      "name": "EKTORP 2-seat sofa - Kilanda light beige",
+      "price": {
+        "currency": "SGD",
+        "value": 559
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 179,
+          "height": 88,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ektorp-2-seat-sofa-kilanda-light-beige__1577714_pe1033461_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ektorp-2-seat-sofa-kilanda-light-beige-s29509026/"
+      }
+    },
+    {
+      "product_code": "NS-995.090.23",
+      "name": "EKTORP 2-seat sofa - Kilanda dark blue",
+      "price": {
+        "currency": "SGD",
+        "value": 559
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "blue",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 179,
+          "height": 88,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ektorp-2-seat-sofa-kilanda-dark-blue__1194825_pe902075_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ektorp-2-seat-sofa-kilanda-dark-blue-s99509023/"
+      }
+    },
+    {
+      "product_code": "NS-595.090.20",
+      "name": "EKTORP 2-seat sofa - Karlshov beige/multicolour",
+      "price": {
+        "currency": "SGD",
+        "value": 599
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 179,
+          "height": 88,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/ektorp-2-seat-sofa-karlshov-beige-multicolour__1194837_pe902083_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/ektorp-2-seat-sofa-karlshov-beige-multicolour-s59509020/"
+      }
+    },
+    {
+      "product_code": "NS-805.861.20",
+      "name": "STOCKHOLM 2025 2-seat sofa - Djurmo grey/white",
+      "price": {
+        "currency": "SGD",
+        "value": 1699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "white",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 178,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-2-seat-sofa-djurmo-grey-white__1577935_pe1033681_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-2-seat-sofa-djurmo-grey-white-80586120/"
+      }
+    },
+    {
+      "product_code": "NS-805.861.15",
+      "name": "STOCKHOLM 2025 2-seat sofa - Alhamn beige",
+      "price": {
+        "currency": "SGD",
+        "value": 1699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 178,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-2-seat-sofa-alhamn-beige__1577927_pe1033675_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-2-seat-sofa-alhamn-beige-80586115/"
+      }
+    },
+    {
+      "product_code": "NS-705.917.49",
+      "name": "STOCKHOLM 2025 2-seat sofa - Alhamn dark brown",
+      "price": {
+        "currency": "SGD",
+        "value": 1699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 178,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-2-seat-sofa-alhamn-dark-brown__1577929_pe1033673_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-2-seat-sofa-alhamn-dark-brown-70591749/"
+      }
+    },
+    {
+      "product_code": "NS-705.861.11",
+      "name": "STOCKHOLM 2025 2-seat sofa - Alhamn dark turquoise",
+      "price": {
+        "currency": "SGD",
+        "value": 1699
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "turquoise",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 99,
+          "width": 178,
+          "height": 70,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/stockholm-2025-2-seat-sofa-alhamn-dark-turquoise__1578439_pe1034081_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/stockholm-2025-2-seat-sofa-alhamn-dark-turquoise-70586111/"
+      }
+    },
+    {
+      "product_code": "NS-894.433.63",
+      "name": "VISKAFORS 3-seat sofa - Lejde anthracite/brown",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-anthracite-brown__1088071_pe861032_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-anthracite-brown-s89443363/"
+      }
+    },
+    {
+      "product_code": "NS-794.433.73",
+      "name": "VISKAFORS 3-seat sofa - Lejde light beige/brown",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-light-beige-brown__1088069_pe861044_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-light-beige-brown-s79443373/"
+      }
+    },
+    {
+      "product_code": "NS-794.433.68",
+      "name": "VISKAFORS 3-seat sofa - Lejde grey/green/brown",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "brown",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-grey-green-brown__1088068_pe861043_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-grey-green-brown-s79443368/"
+      }
+    },
+    {
+      "product_code": "NS-194.433.33",
+      "name": "VISKAFORS 3-seat sofa - Lejde light beige/birch",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "light beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-light-beige-birch__1577477_pe1033231_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-light-beige-birch-s19443333/"
+      }
+    },
+    {
+      "product_code": "NS-194.433.28",
+      "name": "VISKAFORS 3-seat sofa - Lejde anthracite/birch",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "beige",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-anthracite-birch__1577474_pe1033228_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-anthracite-birch-s19443328/"
+      }
+    },
+    {
+      "product_code": "NS-094.433.38",
+      "name": "VISKAFORS 3-seat sofa - Lejde/grey/green birch",
+      "price": {
+        "currency": "SGD",
+        "value": 1499
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Three seater sofas"
+      ],
+      "attributes": {
+        "color": "green",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 90,
+          "width": 224,
+          "height": 74,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/viskafors-3-seat-sofa-lejde-grey-green-birch__1577655_pe1033406_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/viskafors-3-seat-sofa-lejde-grey-green-birch-s09443338/"
+      }
+    },
+    {
+      "product_code": "NS-893.067.09",
+      "name": "VIMLE 4-seat sofa - with chaise longue/Grann/Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 2279
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Fabric sofas with chaise longues"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 98,
+          "width": 322,
+          "height": 80,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/vimle-4-seat-sofa-with-chaise-longue-grann-bomstad-black__0817644_pe774072_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/vimle-4-seat-sofa-with-chaise-longue-grann-bomstad-black-s89306709/"
+      }
+    },
+    {
+      "product_code": "NS-103.993.15",
+      "name": "KLIPPAN 2-seat sofa - Bomstad black",
+      "price": {
+        "currency": "SGD",
+        "value": 459
+      },
+      "taxonomy": [
+        "Furniture",
+        "Living Room",
+        "Two seater sofas"
+      ],
+      "attributes": {
+        "color": "black",
+        "material": "polypropylene",
+        "dimensions": {
+          "depth": 88,
+          "width": 177,
+          "height": 66,
+          "unit": "cm"
+        }
+      },
+      "media": [
+        {
+          "url": "https://www.ikea.com/sg/en/images/products/klippan-2-seat-sofa-bomstad-black__1576940_pe1032837_s5.jpg"
+        }
+      ],
+      "inventory": {
+        "status": "IN_STOCK"
+      },
+      "links": {
+        "checkout": "https://www.ikea.com/sg/en/p/klippan-2-seat-sofa-bomstad-black-10399315/"
+      }
+    }
+  ],
+  "merchant_name": "Northstar Home"
 }
