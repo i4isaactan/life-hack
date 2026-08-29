@@ -207,8 +207,20 @@ Respond with ONLY a JSON object, no prose or code fences:
   "floor_far_depth_cm": <number>
 }
 
-focal_wall is the wall a sofa should face or sit against — typically the one
-with the fireplace, television, or main window.
+The room's compass is fixed by the camera, not by the building: SOUTH is
+always the wall behind the camera, NORTH the wall you are looking at, WEST the
+left of frame and EAST the right. Answer in that frame.
+
+focal_wall is the wall the seating should sit against — the wall a sofa's back
+would go to. Because the camera defines the compass, this is almost always
+"north": the far wall, seen face-on, is where a sofa reads correctly and where
+the whole piece stays in frame. Choose "east" or "west" only if the far wall is
+genuinely unusable - a full-width window or door - since a sofa against a side
+wall is seen edge-on and runs out of the picture. Never choose "south": that is
+the camera's own wall and nothing can be placed there.
+
+A large window is a reason NOT to pick that wall, not a reason to pick it -
+seating goes against a solid wall and faces the light, it does not block it.
 
 floor_quad traces the visible floor as a quadrilateral, in NORMALIZED image
 coordinates where [0,0] is the top-left of the photo and [1,1] the
@@ -457,6 +469,7 @@ context of the conversation and return ONLY a JSON object.
   "style_note": "<short phrase capturing a vague steer like 'warmer', 'less busy'>",
   "reroll_roles": ["sofa"|"rug"|"coffee_table"|"accent_chair"|"floor_lamp"],
   "remove_roles": [same vocabulary],
+  "role_counts": {"accent_chair": 2},
   "max_width_cm": {"sofa": 180},
   "explain_role": "<role they are asking about>",
   "reply": "<your answer, ONLY for explain or chitchat>",
@@ -473,6 +486,14 @@ Rules:
 - "make it cheaper" with a known current total means budget_cents roughly 70%
   of that total. "much cheaper" means roughly half.
 - "I don't like the X" / "show me another X" -> reroll_roles: ["x"].
+- A number of something -> role_counts. "I only want one chair" ->
+  {"accent_chair": 1}. "seating for four" -> {"accent_chair": 3} alongside the
+  sofa. "two lamps" -> {"floor_lamp": 2}. "one fewer chair" -> the current
+  count minus one, which you can read off the current design.
+- Use remove_roles ONLY when they want none of something at all ("no rug",
+  "drop the lamp"). If they name a number, even zero, use role_counts instead -
+  "only one chair" is a count, not a removal, and removing the role would
+  delete the chair they asked to keep.
 - "the sofa is too big" -> max_width_cm, estimating a sensible ceiling from
   the room width if you know it.
 - For kind "explain", ALWAYS set explain_role if the message names or clearly
@@ -689,6 +710,10 @@ def _mock_intent(message: str, budget_cents: int | None) -> "Intent":
     """
     from .models import Intent, IntentKind, Role
 
+    global _ROLE_SYNONYMS
+    if not _ROLE_SYNONYMS:
+        _ROLE_SYNONYMS = _role_synonyms()
+
     text = (message or "").lower()
 
     if any(w in text for w in ("why", "how come", "explain")):
@@ -707,18 +732,75 @@ def _mock_intent(message: str, budget_cents: int | None) -> "Intent":
             intent.budget_cents = int(budget_cents * factor)
 
     for role in Role:
-        spoken = role.value.replace("_", " ")
-        if spoken in text or role.value in text:
-            if any(w in text for w in ("another", "different", "don't like", "hate", "swap")):
-                intent.reroll_roles.append(role)
-            elif any(w in text for w in ("no ", "without", "remove", "don't need")):
-                intent.remove_roles.append(role)
+        # The plain word people actually use as well as the enum's own name:
+        # nobody types "accent chair" when they mean "chair".
+        names = [role.value.replace("_", " "), role.value, *_ROLE_SYNONYMS.get(role, ())]
+        if not any(n in text for n in names):
+            continue
+        count = _spoken_count(text, *names)
+        if count is not None:
+            intent.role_counts[role.value] = count
+        elif any(w in text for w in ("another", "different", "don't like", "hate", "swap")):
+            intent.reroll_roles.append(role)
+        elif any(w in text for w in ("no ", "without", "remove", "don't need")):
+            intent.remove_roles.append(role)
 
     # Nothing recognised: treat it as a fresh brief rather than a no-op refine,
     # which would silently ignore the user.
-    if not (intent.budget_cents or intent.reroll_roles or intent.remove_roles):
+    if not (
+        intent.budget_cents
+        or intent.reroll_roles
+        or intent.remove_roles
+        or intent.role_counts
+    ):
         intent.kind = IntentKind.DESIGN
     return intent
+
+
+# The everyday word for a role, where it differs from the enum's name. Only
+# words that are unambiguous within this vocabulary: "table" is left out
+# because it could equally mean a side table.
+_ROLE_SYNONYMS: dict["Role", tuple[str, ...]] = {}
+
+
+def _role_synonyms() -> dict:
+    """Built lazily: Role is imported inside the functions that use it."""
+    from .models import Role
+
+    return {
+        Role.ACCENT_CHAIR: ("chair", "armchair"),
+        Role.FLOOR_LAMP: ("lamp",),
+        Role.COFFEE_TABLE: ("coffee table",),
+        Role.RUG: ("carpet",),
+        Role.SOFA: ("couch",),
+    }
+
+
+# Words for the small numbers a room's worth of furniture ever involves.
+_NUMBER_WORDS: dict[str, int] = {
+    "no": 0, "zero": 0, "one": 1, "a": 1, "an": 1, "two": 2, "three": 3,
+    "four": 4, "five": 5, "six": 6,
+}
+
+
+def _spoken_count(text: str, *names: str) -> int | None:
+    """The count attached to a role in a plain sentence, or None.
+
+    Offline-path only, and deliberately narrow: it reads the word immediately
+    before the role ("only one chair", "2 lamps") and nothing cleverer. The
+    model path handles real phrasing; this exists so the keyless demo does not
+    silently ignore "I only want one chair".
+    """
+    import re
+
+    for name in names:
+        for match in re.finditer(rf"(\w+)\s+{re.escape(name)}s?\b", text):
+            word = match.group(1)
+            if word.isdigit():
+                return int(word)
+            if word in _NUMBER_WORDS:
+                return _NUMBER_WORDS[word]
+    return None
 
 
 class IntentProvider:
@@ -898,11 +980,122 @@ class CatalogIndex:
         )
         return len(points)
 
+    def add_items(self, items: list[CatalogItem], *, with_images: bool = True) -> int:
+        """Add merchant-published products to the live index.
+
+        Ids are assigned above the seeded range so an ingested product cannot
+        overwrite a seeded one.
+
+        Image vectors are built when CLIP is available, so a merchant's
+        products are findable by "find one that looks like this" the same way
+        seeded ones are - a product that only ever ranked on text is invisible
+        to the reverse-image path, which is the feature most likely to be
+        demonstrated right after an upload.
+
+        This does mean fetching each product photo. `embed_catalog` caps size,
+        honours the SSRF allowlist and caches by (id, url), and an image that
+        cannot be fetched is simply absent rather than fatal - so the worst
+        case is the previous behaviour: the item is published and ranks on
+        text. Pass `with_images=False` to skip the fetch entirely when the
+        caller cannot afford the latency.
+
+        NOTE ON THE ALLOWLIST. A merchant's CDN is almost certainly NOT in
+        `IMAGE_FETCH_ALLOWED_HOSTS`, so in a default deployment these fetches
+        are refused and merchant products still rank on text alone. That is
+        the safe default and it is deliberate: the allowlist is what stops a
+        catalog entry from making this server fetch an arbitrary URL, and
+        merchant-supplied `image_url`s are exactly the untrusted input it
+        exists for. Enabling image search for a merchant is therefore an
+        operator decision - add their image host to IMAGE_FETCH_ALLOWED_HOSTS -
+        rather than something a merchant can grant themselves by uploading a
+        feed.
+        """
+        if not items:
+            return 0
+        if not self._seeded:
+            raise RuntimeError("catalog not seeded yet")
+
+        text_vectors = self.embedder.embed([i.embed_text() for i in items])
+
+        # Only worth fetching if the collection can actually store the result.
+        # A collection seeded without CLIP has no "image" vector in its schema,
+        # and Qdrant rejects a point carrying one - so check the schema rather
+        # than just whether CLIP is importable.
+        image_vectors: dict[str, np.ndarray] = {}
+        if with_images and self.clip.available and self._has_image_vector():
+            try:
+                image_vectors = embed_catalog(items, self.clip)
+            except Exception as exc:  # noqa: BLE001 - never fail a publish
+                # A merchant's catalogue push must not fail because their CDN
+                # was slow or their image 404'd.
+                log.warning("image embedding failed during ingest: %s", exc)
+
+        # Continue past whatever ids exist rather than restarting at 0.
+        base = self.client.count(config.COLLECTION_NAME, exact=True).count
+        points = []
+        for offset, (item, text_vec) in enumerate(zip(items, text_vectors)):
+            named: dict[str, list[float]] = {TEXT_VECTOR: text_vec}
+            img = image_vectors.get(item.id)
+            if img is not None:
+                named[IMAGE_VECTOR] = img.tolist()
+            points.append(
+                PointStruct(
+                    id=base + offset,
+                    vector=named,
+                    payload={
+                        "item_id": item.id,
+                        "role": item.role.value,
+                        "price_cents": item.price_cents,
+                        "width_cm": item.dimensions.width_cm,
+                        "depth_cm": item.dimensions.depth_cm,
+                        "in_stock": item.in_stock,
+                        "merchant": item.merchant,
+                        "style_tags": item.style_tags,
+                    },
+                )
+            )
+        self.client.upsert(collection_name=config.COLLECTION_NAME, points=points)
+        self._by_id.update({i.id: i for i in items})
+        # reverse_search gates the entire image branch on this map being
+        # non-empty, so a vector that reached Qdrant but not here would be
+        # stored and never queried.
+        self._image_vectors.update(image_vectors)
+        log.info(
+            "ingested %d merchant items (%d with image vectors)",
+            len(points),
+            len(image_vectors),
+        )
+        return len(points)
+
+    def _has_image_vector(self) -> bool:
+        """Whether the live collection's schema carries the image vector.
+
+        Decided by asking Qdrant rather than by trusting `self._image_vectors`:
+        the collection is created once, at seed time, with whichever named
+        vectors CLIP could supply then. If CLIP was unavailable at seed the
+        schema has no "image" vector at all, and a point carrying one is
+        rejected - which would turn a merchant's publish into a 500 for a
+        reason they could do nothing about.
+        """
+        try:
+            info = self.client.get_collection(config.COLLECTION_NAME)
+            params = info.config.params.vectors
+            return isinstance(params, dict) and IMAGE_VECTOR in params
+        except Exception as exc:  # noqa: BLE001 - absence is a valid answer
+            log.info("could not read collection schema: %s", exc)
+            return False
+
     def get(self, item_id: str) -> CatalogItem | None:
         return self._by_id.get(item_id)
 
     def all_items(self) -> list[CatalogItem]:
-        """The seeded catalog. For consumers that scan rather than search."""
+        """The live catalog - seeded items plus anything merchants published.
+
+        For consumers that scan rather than search. Resolving an item id must
+        go through here (or `get`) rather than through SEED_ITEMS: a product a
+        merchant pushed is orderable and can be chosen into a design, and a
+        lookup that misses it drops the piece instead of failing loudly.
+        """
         return list(self._by_id.values())
 
     def search(

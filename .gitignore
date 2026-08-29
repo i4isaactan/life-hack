@@ -15,3 +15,14 @@ backend/assets/clip_cache.npz
 # Ad-hoc screenshots and photos dropped in the repo root while working.
 /IMG_*.png
 /Screenshot *.png
+
+# Visa Developer Platform credentials. The private key and client certificate
+# authenticate this project to Visa's sandbox over mutual TLS - a client cert
+# is a credential in exactly the way a password is, so none of this is
+# committed. The CA bundle is public, but it lives here with the rest so the
+# whole directory can be ignored as one unit rather than file by file.
+secrets/
+*.pem
+*.key
+*.csr
+*.p12

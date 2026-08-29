@@ -147,7 +147,7 @@ def _fetch(url: str) -> bytes | None:
     CDN carries its photography embedded in the catalog, and there is no host
     to allowlist or round-trip. The size ceiling still applies.
     """
-    from .render_engine import _fetchable
+    from .render_engine import _fetchable, _safe_opener
 
     if url.startswith("data:"):
         try:
@@ -166,7 +166,9 @@ def _fetch(url: str) -> bytes | None:
         req = urllib.request.Request(
             url, headers={"User-Agent": config.IMAGE_FETCH_USER_AGENT}
         )
-        with urllib.request.urlopen(
+        # Allowlisting opener: the host check above covers the URL we were
+        # given, and this keeps it true for whatever a redirect leads to.
+        with _safe_opener().open(
             req, timeout=config.IMAGE_FETCH_TIMEOUT_SECONDS
         ) as resp:
             data = resp.read(config.IMAGE_FETCH_MAX_BYTES + 1)

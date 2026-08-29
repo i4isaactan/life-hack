@@ -1,16 +1,1202 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Room Hack — Merchant onboarding</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=Figtree:wght@400..700&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merchant onboarding — Room Hack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=Figtree:wght@400..700&display=swap">
 <link rel="stylesheet" href="../shared.css">
 <style>
-.merchant-page{max-width:1120px;margin:0 auto;padding:var(--s8) var(--s5)}.merchant-hero{max-width:720px;margin-bottom:var(--s7)}.eyebrow{color:var(--accent);font-size:11px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}.merchant-hero h1{font-size:clamp(42px,6vw,76px);line-height:.98;margin:14px 0}.merchant-hero p{color:var(--muted);font-size:17px;max-width:620px}.merchant-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s5)}.merchant-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-xl);padding:var(--s6);box-shadow:var(--shadow-sm)}.merchant-card h2{font-size:25px;margin-bottom:4px}.sub{color:var(--muted);margin:0 0 var(--s5)}.dropzone{border:1.5px dashed #b5c2bd;background:var(--soft);border-radius:var(--r-lg);padding:var(--s7) var(--s5);text-align:center}.dropzone .icon{font-size:32px}.dropzone strong{display:block;font-size:16px;margin:6px 0}.dropzone input{margin-top:var(--s3);background:transparent;border:0}.field{margin-top:var(--s4)}.field label{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.field input,.field select{width:100%}.import-status{display:flex;align-items:center;gap:8px;color:var(--ok);font-weight:700;margin:var(--s4) 0}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2)}.stat{padding:var(--s3);background:var(--soft);border-radius:var(--r-md)}.stat strong{display:block;font:700 27px var(--serif)}.stat span{font-size:11px;color:var(--muted)}.mapping{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-top:var(--s5)}.mapping-row{display:grid;grid-template-columns:1fr 24px 1fr;gap:var(--s2);padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px}.mapping-row:last-child{border:0}.mapping-row span{color:var(--muted)}.warning{background:#fbf0dc;color:var(--warn);border-radius:var(--r-sm);padding:10px 12px;font-size:12px;margin-top:var(--s4)}.merchant-actions{display:flex;gap:var(--s2);margin-top:var(--s5)}.merchant-actions button{width:auto}.trust-strip{display:flex;gap:var(--s5);margin-top:var(--s5);color:var(--muted);font-size:12px}@media(max-width:760px){.merchant-page{padding:var(--s6) var(--s4)}.merchant-grid{grid-template-columns:1fr}.trust-strip{flex-wrap:wrap}}
-</style><style>.demo-picker{margin:var(--s4) 0;padding:12px;border:1px solid var(--line);border-radius:var(--r-md);background:#fff}.demo-picker label{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}.demo-picker select{width:100%}.demo-badge{display:block;margin-top:7px;font-size:11px;color:var(--accent-dark)}</style></head>
-<body><div class="merchant-page"><header style="display:flex;align-items:center;padding:0 0 var(--s6);border:0"><a class="wordmark" href="../index.html">Room<span>Hack</span></a><a href="../index.html" style="margin-left:auto;text-decoration:none">← Customer view</a></header>
-<section class="merchant-hero"><div class="eyebrow">Merchant onboarding</div><h1>Make your catalog agent-ready.</h1><p>Join Room Hack and let customers discover, compare, and buy your products through one trusted design conversation.</p><div class="trust-strip"><span>✦ One upload</span><span>✦ Normalized automatically</span><span>✦ You approve what goes live</span></div></section>
-<div class="merchant-grid"><section class="merchant-card"><h2>Upload your catalog</h2><p class="sub">CSV, JSON, or spreadsheet. We’ll map the fields for you.</p><div class="dropzone"><div class="icon">↥</div><strong>Drop your catalog here</strong><span class="muted">or choose a file from your computer</span><input id="catalog-file" type="file" accept=".csv,.json,.xlsx"></div><div class="field"><label for="merchant-name">Merchant name</label><input id="merchant-name" value="Northstar Home"></div><div class="field"><label for="checkout-domain">Checkout domain</label><input id="checkout-domain" value="northstar.example.com"></div><button class="primary" id="analyze" style="margin-top:20px">Analyze catalog →</button></section>
-<section class="merchant-card"><h2>Review your import</h2><p class="sub">Nothing is published until you approve it.</p><div class="import-status"><span class="dot ok"></span><span id="status">Waiting for catalog</span></div><div class="stat-grid"><div class="stat"><strong id="products">—</strong><span>products found</span></div><div class="stat"><strong id="ready">—</strong><span>ready to publish</span></div><div class="stat"><strong id="warnings">—</strong><span>needs attention</span></div></div><div class="mapping"><div class="mapping-row"><b>Merchant field</b><b></b><b>Room Hack field</b></div><div class="mapping-row"><span>product_title / name</span><b>→</b><b>Product name</b></div><div class="mapping-row"><span>unit_price / amount</span><b>→</b><b>Price + currency</b></div><div class="mapping-row"><span>w_in, d_in, h_in</span><b>→</b><b>Dimensions in cm</b></div><div class="mapping-row"><span>buy_link / checkout</span><b>→</b><b>Verified checkout</b></div></div><div class="warning" id="feedback">Analyze a catalog to see validation feedback.</div><div class="merchant-actions"><button class="primary" id="publish" disabled>Publish catalog</button><button class="secondary" id="report" disabled>View report</button></div></section></div></div>
-<script>const $=id=>document.getElementById(id);$("analyze").onclick=()=>{const file=$("catalog-file").files[0];$("status").textContent=file?`Analyzed ${file.name}`:"Demo catalog analyzed";$("products").textContent=file?"42":"8";$("ready").textContent=file?"39":"8";$("warnings").textContent=file?"3":"0";$("feedback").textContent=file?"3 products need attention: missing dimensions or an invalid checkout URL.":"All demo products passed validation and are ready to publish.";$("publish").disabled=false;$("report").disabled=false};$("publish").onclick=()=>{$("status").textContent="Catalog published · agent-ready";$("feedback").textContent="Your products can now be discovered by Room Hack customers.";$("publish").textContent="Published ✓";$("publish").disabled=true};$("report").onclick=()=>{$("feedback").textContent="Import report ready: normalized fields, warnings, and products needing attention."};</script></body></html>
+  /* --- Merchant onboarding -------------------------------------------------
+     Styled as a workspace, not a marketing page. Onboarding is work a merchant
+     does once and wants to get through, so it borrows the app's shell rather
+     than the landing page's hero: a fixed head bar, a numbered sequence, and
+     two panels that hold the doing and the checking side by side.
+
+     Everything below comes from shared.css tokens. The previous version of
+     this page re-declared its own paddings, radii and dashed borders inline;
+     any of those drifting from the app is exactly the mismatch this rewrite
+     is meant to remove. */
+
+  .app-head {
+    display:flex; align-items:center; gap:var(--s4);
+    padding:0 var(--s5); height:56px;
+    background:var(--panel); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:5;
+  }
+  .app-head .sep { width:1px; height:22px; background:var(--line); }
+  .app-head .where { font-size:13px; color:var(--muted); }
+  .app-head .back {
+    margin-left:auto; color:var(--muted); text-decoration:none;
+    font-size:13px; padding:6px 10px; border-radius:var(--r-pill);
+  }
+  .app-head .back:hover { background:var(--soft); color:var(--ink); }
+
+  .sheet { max-width:1180px; margin:0 auto; padding:var(--s7) var(--s5) var(--s8); }
+
+  /* --- Intro ---------------------------------------------------------------
+     Deliberately short. A merchant who clicked "For merchants" has already
+     been sold; what they need now is the first field. */
+  .intro { max-width:640px; margin-bottom:var(--s6); }
+  .eyebrow {
+    color:var(--accent); font-size:11px; font-weight:800;
+    letter-spacing:.15em; text-transform:uppercase;
+  }
+  .intro h1 { font-size:clamp(32px,4.4vw,52px); line-height:1.02; margin:var(--s3) 0; }
+  .intro p { color:var(--muted); font-size:15.5px; margin:0; }
+
+  /* --- Sequence rail -------------------------------------------------------
+     The app teaches its stages with a numbered stepper, so onboarding uses the
+     same vocabulary: three numbered beats, the current one ringed in accent.
+     Static here - it marks where you are in a short flow, it is not a router. */
+  .beats { display:flex; gap:var(--s5); flex-wrap:wrap; margin:var(--s6) 0 var(--s5); }
+  .beat { display:flex; align-items:center; gap:var(--s2); font-size:12.5px; color:var(--muted); }
+  .beat b {
+    width:24px; height:24px; border-radius:50%; display:grid; place-items:center;
+    background:var(--panel); border:2px solid var(--line);
+    font-size:11px; font-weight:700; color:var(--muted);
+  }
+  .beat.on { color:var(--accent-dark); font-weight:650; }
+  .beat.on b { border-color:var(--accent); color:var(--accent-dark); box-shadow:0 0 0 4px #a8552a24; }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s5); align-items:start; }
+  /* Grid items default to min-width:auto, so the widest thing inside a column -
+     the preview table - would stretch the column past its 1fr share and push
+     the page sideways. min-width:0 lets the table scroll inside the card
+     instead of widening it. */
+  .grid > .card { min-width:0; }
+
+  .card {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--r-xl); padding:var(--s6); box-shadow:var(--shadow-sm);
+    /* The card sizes from the grid column, never from its widest child. */
+    min-width:0; max-width:100%;
+  }
+  .card h2 { font-size:23px; margin-bottom:var(--s1); }
+  .card > p.muted { font-size:13.5px; margin:0 0 var(--s5); }
+
+  /* --- Dropzone ------------------------------------------------------------
+     The file input is the action, so it is the whole target rather than a
+     button parked underneath one. */
+  /* A column rather than a text block: the icon, the two lines of copy and the
+     button each need their own row, and centred inline content puts the button
+     alongside the caption instead of under it. */
+  .drop {
+    border:1.5px dashed #b5c2bd; background:var(--soft);
+    border-radius:var(--r-lg); padding:var(--s6) var(--s5); text-align:center;
+    display:flex; flex-direction:column; align-items:center;
+    transition:border-color .2s, background .2s;
+  }
+  .drop:hover, .drop.over { border-color:var(--accent); background:#a8552a0d; }
+  .drop .ico {
+    width:44px; height:44px; margin:0 0 var(--s3); border-radius:14px;
+    display:grid; place-items:center; font-size:20px;
+    background:var(--panel); border:1px solid var(--line); color:var(--accent);
+  }
+  .drop strong { display:block; font-size:15px; }
+  .drop .muted { font-size:12.5px; }
+  /* The native file input is visually hopeless and unstyleable across
+     browsers, so it is taken out of the layout and driven by the label
+     beside it. Kept focusable rather than display:none so it still reaches
+     the keyboard and reports its own validation. */
+  .drop input[type=file] {
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+  }
+  .drop .pick {
+    display:inline-block; margin-top:var(--s4); padding:9px 18px;
+    border-radius:var(--r-pill); background:var(--ink); color:#fff;
+    font:650 13px var(--sans); cursor:pointer; border:1px solid var(--ink);
+    transition:background .18s ease, border-color .18s ease;
+  }
+  .drop .pick:hover { background:var(--accent-dark); border-color:var(--accent-dark); }
+  /* The focus ring belongs on the label, since that is what the user sees -
+     the input itself is off-screen. */
+  .drop input[type=file]:focus-visible + .pick {
+    outline:3px solid var(--accent-dark); outline-offset:3px;
+  }
+  .drop .hint { display:block; margin-top:var(--s3); font-size:11.5px; color:var(--muted); }
+
+  /* Sample feeds. Secondary to the dropzone - an escape hatch for someone
+     without a catalog to hand, not the main path. */
+  .samples { display:flex; align-items:center; gap:var(--s2); flex-wrap:wrap; margin-top:var(--s3); }
+  .samples-label { font-size:11.5px; color:var(--muted); }
+  .sample {
+    width:auto; margin:0; padding:6px 12px; border-radius:var(--r-pill);
+    background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    font:650 12px var(--sans); cursor:pointer; display:inline-flex; gap:6px; align-items:baseline;
+  }
+  .sample span { font-weight:400; font-size:11px; color:var(--muted); }
+  .sample:hover:not(:disabled) { background:var(--soft); border-color:var(--muted); color:var(--ink); }
+
+  /* --- Chosen file + preview ------------------------------------------------
+     A file name alone does not tell a merchant whether they grabbed the right
+     export. The first rows do, so the picked file collapses into a compact
+     bar and the parsed head of the file is shown beneath it. */
+  .picked {
+    display:flex; align-items:center; gap:var(--s3); margin-top:var(--s4);
+    padding:11px var(--s3); border:1px solid var(--line);
+    border-radius:var(--r-md); background:var(--soft);
+  }
+  .picked .fname { font:650 13px var(--sans); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .picked .fmeta { font-size:11.5px; color:var(--muted); }
+  .picked .grow { min-width:0; flex:1; }
+  .picked button {
+    width:auto; margin:0; padding:5px 12px; font-size:12px;
+    border-radius:var(--r-pill); background:transparent;
+    border:1px solid var(--line); color:var(--muted);
+  }
+  .picked button:hover:not(:disabled) { background:var(--panel); color:var(--ink); border-color:var(--muted); }
+
+  /* The preview table scrolls in both directions inside its own box: a wide
+     catalog must not widen the card or push the page sideways. */
+  /* Width is pinned at every level rather than left to inheritance. The table
+     is deliberately wider than the card (width:max-content), and a single
+     ancestor that sizes to its content instead of its parent is enough to let
+     that width escape and push the page sideways. max-width:100% + min-width:0
+     makes each box size from the card down, never from the table up. */
+  .preview {
+    margin-top:var(--s4); border:1px solid var(--line);
+    border-radius:var(--r-md); overflow:hidden;
+    max-width:100%; min-width:0;
+  }
+  .preview-head {
+    display:flex; align-items:center; justify-content:space-between; gap:var(--s2);
+    padding:8px var(--s3); background:var(--soft); border-bottom:1px solid var(--line);
+  }
+  .preview-head span { font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+  /* The only element allowed to scroll horizontally. overscroll-behavior-x
+     keeps a trackpad swipe inside the table from chaining to the page. */
+  .preview-scroll {
+    overflow-x:auto; overflow-y:auto; max-height:230px;
+    max-width:100%; min-width:0; overscroll-behavior-x:contain;
+  }
+  .preview table { border-collapse:collapse; width:max-content; min-width:100%; font-size:11.5px; }
+  .preview th, .preview td {
+    text-align:left; padding:7px var(--s3); border-bottom:1px solid var(--line);
+    white-space:nowrap; max-width:190px; overflow:hidden; text-overflow:ellipsis;
+  }
+  .preview th {
+    position:sticky; top:0; background:var(--panel); z-index:1;
+    font:650 10.5px var(--mono); color:var(--muted);
+    text-transform:uppercase; letter-spacing:.06em;
+  }
+  .preview td { color:var(--ink); font-family:var(--mono); font-size:11px; }
+  .preview tbody tr:last-child td { border-bottom:0; }
+  .preview tbody tr:nth-child(even) { background:#00000004; }
+  .preview .rownum { color:var(--muted); text-align:right; padding-right:var(--s2); }
+
+  /* Labelled field, matching the app's .fld: uppercase micro-label above the
+     control, so a form scans as a column of labels rather than of boxes. */
+  .fld { display:block; margin-top:var(--s4); }
+  .fld > span {
+    display:block; font-size:11px; color:var(--muted); margin-bottom:var(--s1);
+    text-transform:uppercase; letter-spacing:.07em;
+  }
+
+  .fld-note { display:block; margin-top:6px; font-size:11px; color:var(--muted); line-height:1.45; }
+
+  .card > button { margin-top:var(--s5); width:auto; padding:11px 20px; border-radius:var(--r-md); }
+
+  /* --- Review panel --------------------------------------------------------- */
+  .status {
+    display:flex; align-items:center; gap:var(--s2);
+    font-size:13px; font-weight:650; margin-bottom:var(--s4);
+  }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:var(--s2); }
+  .stat { padding:var(--s3); background:var(--soft); border-radius:var(--r-md); }
+  .stat b { display:block; font:700 26px var(--serif); letter-spacing:-.035em; }
+  .stat span { font-size:11px; color:var(--muted); }
+
+  /* Field mapping. The merchant's column names on the left, ours on the right -
+     the one thing they most need to check before publishing. */
+  .map { border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; margin-top:var(--s5); }
+  .map-row {
+    display:grid; grid-template-columns:1fr 20px 1fr; gap:var(--s2);
+    padding:9px var(--s3); border-bottom:1px solid var(--line); font-size:12px;
+    align-items:center;
+  }
+  .map-row:last-child { border-bottom:0; }
+  /* Both sides hold merchant data - a column name on the left, a resolved
+     value (often a long checkout URL) on the right. Neither has spaces to
+     break at, so without an explicit wrap rule they set the row's minimum
+     width and push the whole page sideways. */
+  .map-row > * { min-width:0; overflow-wrap:anywhere; }
+  .map-row .from { color:var(--muted); font-family:var(--mono); font-size:11px; }
+  .map-row .arrow { color:var(--muted); text-align:center; }
+  .map-head { background:var(--soft); }
+  .map-head span {
+    font-size:10px; text-transform:uppercase; letter-spacing:.1em;
+    color:var(--muted); font-family:var(--sans);
+  }
+
+  .notice { border-radius:var(--r-sm); padding:10px var(--s3); font-size:12px; margin-top:var(--s4); background:var(--soft); color:var(--muted); overflow-wrap:anywhere; }
+
+  /* Rejected rows, as reported by the server. Scrolls rather than growing:
+     a 400-row feed with 60 problems must not push the Publish button off
+     the page. */
+  .errs { margin-top:var(--s3); border:1px solid var(--line); border-radius:var(--r-md); max-height:190px; overflow-y:auto; }
+  .errs:empty { display:none; }
+  .err-row { display:grid; grid-template-columns:auto 1fr; gap:var(--s2); padding:8px var(--s3); border-bottom:1px solid var(--line); font-size:11.5px; align-items:baseline; }
+  .err-row:last-child { border-bottom:0; }
+  .err-row > * { min-width:0; }
+  .err-row .who { font-family:var(--mono); font-size:10.5px; color:var(--muted); white-space:nowrap; }
+  /* Server messages quote SKUs and URLs verbatim; they must wrap. */
+  .err-row .what { color:var(--ink); overflow-wrap:anywhere; }
+  .err-row.warn .what { color:var(--warn); }
+  .notice.warn { background:#fbf0dc; color:var(--warn); }
+  .notice.ok { background:#e6f2ea; color:#2f6b47; }
+
+  .actions { display:flex; gap:var(--s2); margin-top:var(--s5); }
+  .actions button { width:auto; padding:10px 18px; border-radius:var(--r-md); }
+
+  .trust { display:flex; gap:var(--s5); flex-wrap:wrap; margin-top:var(--s6); color:var(--muted); font-size:12px; }
+
+  /* --- Report ---------------------------------------------------------------
+     Previously the report overwrote the one-line notice, so it could only ever
+     say a sentence. It is its own panel now: what published, how it is
+     searchable, and what is live - the three things a merchant actually asks
+     after an upload. */
+  .report { margin-top:var(--s5); border-top:1px solid var(--line); padding-top:var(--s5); }
+  .report[hidden] { display:none; }
+  .report h3 { font-size:15px; margin:0 0 var(--s1); }
+  .report > p.muted { font-size:12px; margin:0 0 var(--s4); overflow-wrap:anywhere; }
+
+  .rep-rows { display:grid; gap:var(--s2); }
+  .rep-row {
+    display:grid; grid-template-columns:18px 1fr auto; gap:var(--s3);
+    align-items:baseline; padding:10px var(--s3);
+    border:1px solid var(--line); border-radius:var(--r-md); font-size:12.5px;
+  }
+  .rep-row .mark { font-size:13px; line-height:1.2; }
+  .rep-row.ok   { background:#e6f2ea3d; border-color:#bfdcc9; }
+  .rep-row.ok   .mark { color:var(--ok); }
+  .rep-row.warn { background:#fbf0dc5c; border-color:#e8d3a8; }
+  .rep-row.warn .mark { color:var(--warn); }
+  .rep-row > * { min-width:0; }
+  .rep-row b { display:block; font-weight:650; overflow-wrap:anywhere; }
+  .rep-row .detail { color:var(--muted); font-size:11.5px; margin-top:2px; overflow-wrap:anywhere; }
+  .rep-row .num { font:700 15px var(--serif); font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+  /* What actually went live, so "published" is something the merchant can see
+     rather than a number they have to trust. */
+  .rep-items { margin-top:var(--s4); border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; }
+  .rep-items .cap {
+    padding:8px var(--s3); background:var(--soft); border-bottom:1px solid var(--line);
+    font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted);
+  }
+  .rep-list { max-height:200px; overflow-y:auto; }
+  .rep-item {
+    display:grid; grid-template-columns:1fr auto auto; gap:var(--s3);
+    align-items:center; padding:8px var(--s3);
+    border-bottom:1px solid var(--line); font-size:12px;
+  }
+  .rep-item:last-child { border-bottom:0; }
+  .rep-item .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rep-item .p { font-variant-numeric:tabular-nums; color:var(--muted); }
+  /* Per-product image-search state: the honest answer to "why can't I find
+     this by photo", shown per row rather than only as a feed-level warning. */
+  .rep-item .img-state {
+    font-size:10px; padding:2px 8px; border-radius:var(--r-pill);
+    font-weight:650; letter-spacing:.03em; white-space:nowrap;
+  }
+  .rep-item .img-state.yes { background:#e3efe8; color:var(--ok); }
+  .rep-item .img-state.no  { background:var(--soft); color:var(--muted); }
+
+  @media (max-width:860px) {
+    .grid { grid-template-columns:1fr; }
+    .sheet { padding:var(--s6) var(--s4) var(--s7); }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-head">
+  <a class="wordmark" href="../index.html">Room<span>Hack</span></a>
+  <span class="sep"></span>
+  <span class="where">Merchant onboarding</span>
+  <a class="back" href="../index.html">← Customer view</a>
+</header>
+
+<main class="sheet">
+
+  <section class="intro">
+    <div class="eyebrow">For merchants</div>
+    <h1>Make your catalog agent-ready.</h1>
+    <p>Upload once. We normalize your fields, flag what needs attention, and put your products in front of customers who are actively designing a room — nothing goes live until you approve it.</p>
+  </section>
+
+  <div class="beats">
+    <span class="beat on" id="beat-1"><b>1</b>Upload</span>
+    <span class="beat" id="beat-2"><b>2</b>Review</span>
+    <span class="beat" id="beat-3"><b>3</b>Publish</span>
+  </div>
+
+  <div class="grid">
+
+    <section class="card">
+      <h2>Upload your catalog</h2>
+      <p class="muted">CSV or JSON export. We map the fields for you.</p>
+
+      <div class="drop" id="drop">
+        <div class="ico">↥</div>
+        <strong>Drop your catalog here</strong>
+        <span class="muted">CSV or JSON · we map the columns for you</span>
+        <input id="catalog-file" type="file" accept=".csv,.json">
+        <label class="pick" for="catalog-file">Browse files</label>
+        <span class="hint">Nothing is uploaded until you press Analyze.</span>
+      </div>
+
+      <!-- Real merchant exports, for trying the flow without one to hand. They
+           are deliberately unlike our schema - that is what the mapping and
+           the estimator have to earn. -->
+      <div class="samples">
+        <span class="samples-label">No feed handy? Try a real one:</span>
+        <button type="button" class="sample" data-file="../samples/hipvan_catalog.csv"
+                data-name="hipvan_catalog.csv">
+          HipVan <span>54 rows · messy</span>
+        </button>
+        <button type="button" class="sample" data-file="../samples/northstar_catalog.csv"
+                data-name="northstar_catalog.csv">
+          Northstar <span>5 rows · clean</span>
+        </button>
+      </div>
+
+      <!-- Filled in once a file is chosen: the name and size, plus the parsed
+           head of the file so the merchant can see they grabbed the right
+           export before spending a round trip on it. -->
+      <div class="picked" id="picked" hidden>
+        <div class="grow">
+          <div class="fname" id="picked-name"></div>
+          <div class="fmeta" id="picked-meta"></div>
+        </div>
+        <button type="button" id="picked-clear">Remove</button>
+      </div>
+
+      <div class="preview" id="preview" hidden>
+        <div class="preview-head">
+          <span>File preview</span>
+          <span id="preview-note"></span>
+        </div>
+        <div class="preview-scroll"><table id="preview-table"></table></div>
+      </div>
+
+      <label class="fld" for="merchant-name">
+        <span>Merchant name</span>
+        <input id="merchant-name" value="Northstar Home">
+      </label>
+      <label class="fld" for="merchant-email">
+        <span>Contact email</span>
+        <input id="merchant-email" value="catalog@northstar.example.com">
+      </label>
+      <label class="fld" for="merchant-payout">
+        <span>Payout card — where Visa Direct sends your money</span>
+        <input id="merchant-payout" value="4957030420210454" inputmode="numeric"
+               autocomplete="off" spellcheck="false">
+        <small class="fld-note">Visa Direct pushes each payout to this card. Sandbox
+        test PAN — never a real card number here.</small>
+      </label>
+
+      <button class="primary" id="analyze">Analyze catalog →</button>
+    </section>
+
+    <section class="card">
+      <h2>Review your import</h2>
+      <p class="muted">Nothing is published until you approve it.</p>
+
+      <div class="status"><span class="dot" id="status-dot"></span><span id="status">Waiting for catalog</span></div>
+
+      <div class="stats">
+        <div class="stat"><b id="products">—</b><span>products found</span></div>
+        <div class="stat"><b id="ready">—</b><span>ready to publish</span></div>
+        <div class="stat"><b id="warnings">—</b><span>needs attention</span></div>
+      </div>
+
+      <div class="map">
+        <div class="map-row map-head"><span>Your field</span><span></span><span>Room Hack field</span></div>
+        <div id="map-body">
+          <div class="map-row"><span class="from">product_title / name</span><span class="arrow">→</span><b>Product name</b></div>
+          <div class="map-row"><span class="from">unit_price / amount</span><span class="arrow">→</span><b>Price + currency</b></div>
+          <div class="map-row"><span class="from">w_in, d_in, h_in</span><span class="arrow">→</span><b>Dimensions in cm</b></div>
+          <div class="map-row"><span class="from">buy_link / checkout</span><span class="arrow">→</span><b>Verified checkout</b></div>
+        </div>
+      </div>
+
+      <div class="notice" id="feedback">Analyze a catalog to see validation feedback.</div>
+      <div class="errs" id="errors"></div>
+
+      <div class="actions">
+        <button class="primary" id="publish" disabled>Publish catalog</button>
+        <button class="secondary" id="report" disabled>View report</button>
+      </div>
+
+      <!-- The import report. Hidden until asked for, because before a publish
+           there is nothing true to put in it. -->
+      <section class="report" id="report-panel" hidden>
+        <h3>Import report</h3>
+        <p class="muted" id="report-sub"></p>
+        <div class="rep-rows" id="report-rows"></div>
+        <div class="rep-items" id="report-items" hidden>
+          <div class="cap" id="report-items-cap">Published products</div>
+          <div class="rep-list" id="report-list"></div>
+        </div>
+      </section>
+    </section>
+
+  </div>
+
+  <div class="trust">
+    <span>✦ One upload</span>
+    <span>✦ Normalized automatically</span>
+    <span>✦ You approve what goes live</span>
+  </div>
+
+</main>
+
+<script>
+/* Merchant onboarding, wired to the real API.
+   Onboard -> upload (preview) -> upload (publish), against the same endpoints
+   the signed CLI flow uses. Nothing here is simulated: the counts, the field
+   mapping and the rejected rows all come back from the server.
+
+   SECURITY NOTE: this page holds the merchant's API secret in the browser and
+   signs requests client-side, which is acceptable only because this is a demo
+   console. A real merchant integration signs on its own server and never ships
+   the secret to a browser - the secret is the credential, and anything holding
+   it can publish products a shopper can be charged for. The signing scheme is
+   identical either way; only the location of the secret differs. */
+const API = (localStorage.getItem("roomhack_api") || "http://127.0.0.1:8000").replace(/\/$/, "");
+const $ = id => document.getElementById(id);
+
+/* Credentials persist so a reload doesn't strand the merchant with a catalog
+   published under an account it can no longer authenticate as. */
+const STORE = "roomhack_merchant";
+let cred = null;
+try { cred = JSON.parse(localStorage.getItem(STORE) || "null"); } catch { cred = null; }
+
+/* The last previewed file, held so Publish re-sends the exact same bytes the
+   merchant reviewed rather than whatever is in the picker by then. */
+let previewed = null;
+
+function setBeat(n) {
+  [1, 2, 3].forEach(i => $("beat-" + i).classList.toggle("on", i === n));
+}
+
+function setNotice(text, kind) {
+  const el = $("feedback");
+  el.textContent = text;
+  el.className = "notice" + (kind ? " " + kind : "");
+}
+
+function setStatus(text, kind) {
+  $("status-dot").className = "dot" + (kind ? " " + kind : "");
+  $("status").textContent = text;
+}
+
+function setStats(found, ready, warn) {
+  $("products").textContent = found;
+  $("ready").textContent = ready;
+  $("warnings").textContent = warn;
+}
+
+function busy(on, label) {
+  $("analyze").disabled = on;
+  if (on) setStatus(label, "");
+}
+
+/* --- Signing -------------------------------------------------------------
+   Must byte-match backend/merchants.py:sign_request -
+   HMAC-SHA256 over "METHOD\npath\ntimestamp\nnonce\nbody", hex-encoded.
+   The body is signed as the raw request bytes, so a multipart upload signs
+   the assembled multipart payload, not the file alone. */
+async function sign(method, path, body) {
+  const ts = String(Date.now() / 1000);
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(cred.secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const msg = `${method.toUpperCase()}\n${path}\n${ts}\n${nonce}\n${body}`;
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg));
+  const sig = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("");
+  return {
+    "x-merchant-key": cred.key_id,
+    "x-merchant-signature": sig,
+    "x-merchant-timestamp": ts,
+    "x-merchant-nonce": nonce,
+  };
+}
+
+/* Build the multipart body by hand. FormData would be simpler, but the
+   browser picks its own boundary and won't reveal the assembled bytes - and
+   we must sign exactly what we send. */
+function multipart(fields, file, text) {
+  const boundary = "----RoomHack" + crypto.randomUUID().replace(/-/g, "");
+  let body = "";
+  for (const [k, v] of Object.entries(fields)) {
+    body += `--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`;
+  }
+  const type = file.name.toLowerCase().endsWith(".json") ? "application/json" : "text/csv";
+  body += `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.name}"\r\n`
+        + `Content-Type: ${type}\r\n\r\n${text}\r\n`;
+  body += `--${boundary}--\r\n`;
+  return { body, boundary };
+}
+
+/* Errors come back as {detail: ...} where detail is a string or FastAPI's
+   validation array. Surface the server's own words - they name the row and
+   the field, which is the only thing that makes a rejection actionable. */
+async function readError(res) {
+  let detail;
+  try { detail = (await res.json()).detail; } catch { return `HTTP ${res.status}`; }
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join("; ");
+  return `HTTP ${res.status}`;
+}
+
+/* --- Onboarding ----------------------------------------------------------
+   Runs once, lazily, on the first analyze. The account comes back `pending`
+   with can_sell true and can_settle false: it may publish immediately but
+   cannot be paid until KYC clears, which is the platform's call, not ours. */
+async function ensureMerchant() {
+  if (cred) return cred;
+  const name = $("merchant-name").value.trim() || "Northstar Home";
+  const email = $("merchant-email").value.trim() || "catalog@northstar.example.com";
+  // Where Visa Direct pushes this merchant's share. Collected at onboarding
+  // because settlement refuses outright without it - a merchant that can sell
+  // but has no payout account accrues a balance nobody can pay.
+  const payout_pan = $("merchant-payout").value.replace(/\s+/g, "");
+  let res = await fetch(`${API}/api/merchant/onboard`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, email, payout_pan }),
+  });
+
+  // Merchant names are unique, so re-onboarding after this browser dropped its
+  // credential collides with the account still on the server - and the secret
+  // for that one cannot be recovered, by design. Fall back to a suffixed name
+  // so the demo proceeds rather than dead-ending on a 409 that the merchant
+  // has no way to resolve from this page.
+  if (res.status === 409) {
+    const alt = `${name} ${String(Date.now()).slice(-4)}`;
+    res = await fetch(`${API}/api/merchant/onboard`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: alt, email, payout_pan }),
+    });
+    if (res.ok) $("merchant-name").value = alt;
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  const out = await res.json();
+  // The secret is returned exactly once, at onboarding. There is no endpoint
+  // that will hand it back, so it is stored now or the account is unusable.
+  cred = { key_id: out.key_id, secret: out.api_secret, merchant: out.merchant };
+  localStorage.setItem(STORE, JSON.stringify(cred));
+  return cred;
+}
+
+async function uploadCatalog(file, publish, _retried) {
+  const text = await file.text();
+  const path = "/api/merchant/catalog/upload";
+  const { body, boundary } = multipart({ publish: publish ? "true" : "false" }, file, text);
+  const headers = await sign("POST", path, body);
+  headers["content-type"] = `multipart/form-data; boundary=${boundary}`;
+  const res = await fetch(API + path, { method: "POST", headers, body });
+
+  // Merchant accounts live in memory on the server, but the credential is
+  // persisted in this browser - so a server restart leaves the page holding a
+  // key the server has never heard of, and every request 401s until
+  // localStorage is cleared by hand. Re-onboard once and retry instead: the
+  // merchant did nothing wrong and should not have to know what a stale
+  // credential is. Guarded by `_retried` so a genuinely bad secret surfaces
+  // as an error rather than looping.
+  if (res.status === 401 && !_retried) {
+    cred = null;
+    localStorage.removeItem(STORE);
+    await ensureMerchant();
+    return uploadCatalog(file, publish, true);
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/* The estimator reports its source as a bare key ("openai", "table",
+   "openai+table"); these are the words a merchant should see instead. */
+const SOURCE_LABEL = {
+  openai: "an AI estimate",
+  table: "typical dimensions for this product type",
+  "openai+table": "an AI estimate and typical dimensions",
+};
+const sourceLabel = keys =>
+  (keys || []).map(k => SOURCE_LABEL[k] || k).join(" and ") || "an estimate";
+
+/* --- Rendering the server's answer --------------------------------------- */
+
+function renderErrors(errors) {
+  const box = $("errors");
+  box.innerHTML = "";
+  for (const e of errors || []) {
+    // The server distinguishes real rejections from advisory notes by
+    // prefixing the latter with "warning:" - keep that distinction visible.
+    const isWarn = String(e.error || "").startsWith("warning:");
+    const row = document.createElement("div");
+    row.className = "err-row" + (isWarn ? " warn" : "");
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = e.sku ? e.sku : (e.row ? `row ${e.row}` : "feed");
+    const what = document.createElement("span");
+    what.className = "what";
+    what.textContent = String(e.error || "").replace(/^warning:\s*/, "");
+    row.append(who, what);
+    box.append(row);
+  }
+}
+
+/* Show the mapping the server actually resolved, taken from the first preview
+   row. The static table was a guess at the merchant's column names; this is
+   what their file really produced. */
+function renderMapping(preview) {
+  const item = (preview || [])[0];
+  if (!item) return;
+  const cm = v => v == null ? "—" : `${Math.round(v)}cm`;
+  const rows = [
+    ["title", item.title || "—"],
+    ["price", `${item.currency} ${(item.price_cents / 100).toFixed(2)}`],
+    ["dimensions", `${cm(item.width_cm)} × ${cm(item.depth_cm)} × ${cm(item.height_cm)}`],
+    ["checkout_url", item.checkout_url || "—"],
+  ];
+  const body = $("map-body");
+  body.innerHTML = "";
+  for (const [from, to] of rows) {
+    const row = document.createElement("div");
+    row.className = "map-row";
+    const f = document.createElement("span");
+    f.className = "from"; f.textContent = from;
+    const a = document.createElement("span");
+    a.className = "arrow"; a.textContent = "→";
+    const t = document.createElement("b");
+    t.textContent = to;
+    row.append(f, a, t);
+    body.append(row);
+  }
+}
+
+/* --- Analyze (preview, publishes nothing) -------------------------------- */
+$("analyze").onclick = async () => {
+  const file = $("catalog-file").files[0];
+  if (!file) {
+    setStatus("No file chosen", "warn");
+    setNotice("Choose a .csv or .json catalog file to analyze.", "warn");
+    return;
+  }
+
+  busy(true, "Analyzing…");
+  setNotice("Uploading and validating — nothing is published by this step.");
+  $("errors").innerHTML = "";
+  try {
+    await ensureMerchant();
+    const out = await uploadCatalog(file, false);
+
+    previewed = file;
+    published = null;          // a new analysis supersedes any earlier publish
+    setStats(out.rows_read, out.normalized, out.rejected);
+    renderMapping(out.preview);
+    renderErrors(out.errors);
+    setStatus(`Analyzed ${out.filename}`, out.rejected ? "warn" : "ok");
+
+    // An estimate is worth saying at analyze time, not just after publishing:
+    // this is the merchant's chance to supply the real number instead.
+    if (out.dimensions_estimated) {
+      const via = sourceLabel(out.estimate_sources);
+      renderErrors([
+        ...(out.errors || []),
+        { sku: "", error: `warning: ${out.dimensions_estimated} product(s) were missing a `
+          + `measurement — we estimated it from the dimensions you did supply (via ${via}). `
+          + `Publishing keeps the estimate; re-upload with real numbers to replace it.` },
+      ]);
+    }
+
+    if (out.normalized === 0) {
+      setNotice("No products could be normalized. Fix the rows below and re-analyze.", "warn");
+      $("publish").disabled = true;
+    } else if (out.rejected) {
+      setNotice(
+        `${out.normalized} of ${out.rows_read} products are ready. ${out.rejected} need attention — `
+        + "publishing now will skip them.", "warn");
+      $("publish").disabled = false;
+    } else {
+      setNotice(`All ${out.normalized} products passed validation and are ready to publish.`, "ok");
+      $("publish").disabled = false;
+    }
+    $("report").disabled = false;
+    setBeat(2);
+  } catch (err) {
+    setStatus("Analysis failed", "warn");
+    setNotice(String(err.message || err), "warn");
+    setStats("—", "—", "—");
+  } finally {
+    busy(false);
+  }
+};
+
+/* --- Publish -------------------------------------------------------------- */
+$("publish").onclick = async () => {
+  if (!previewed) return;
+  $("publish").disabled = true;
+  // Publishing uploads a whole catalogue and embeds every product, which runs
+  // for seconds on a real feed. A disabled button alone reads as "the click
+  // did not register", so the button says what it is doing while it does it.
+  $("publish").innerHTML = `<span class="spin"></span> Publishing…`;
+  setStatus("Publishing…", "");
+  try {
+    const out = await uploadCatalog(previewed, true);
+    // A product with no image vector is live and text-searchable but invisible
+    // to reverse image search. Shown as an advisory row rather than folded
+    // into the error count: nothing was rejected, and the merchant may well
+    // not care - but they should not have to discover it by absence.
+    const errors = out.errors ? [...out.errors] : [];
+    if (out.image_search_note) {
+      errors.push({ sku: "", error: "warning: " + out.image_search_note });
+    }
+    renderErrors(errors);
+    // Kept for the report, which needs what this publish did - the live
+    // catalog alone cannot say how many products got an image vector.
+    published = {
+      filename: previewed.name,
+      rows_read: out.rows_read,
+      accepted: out.accepted,
+      rejected: out.rejected,
+      image_searchable: out.image_searchable ?? 0,
+      dimensions_estimated: out.dimensions_estimated ?? 0,
+      estimate_sources: out.estimate_sources || [],
+    };
+    setStats(out.rows_read, out.accepted, out.rejected);
+    setStatus("Catalog published · agent-ready", "ok");
+    setNotice(
+      `${out.accepted} product${out.accepted === 1 ? "" : "s"} published as `
+      + `${cred.merchant.name}. They can now be discovered by Room Hack customers.`
+      + (out.rejected ? ` ${out.rejected} row(s) were skipped — see below.` : ""),
+      out.rejected ? "warn" : "ok");
+    $("publish").textContent = "Published ✓";
+    setBeat(3);
+    showPayoutState();
+  } catch (err) {
+    setStatus("Publish failed", "warn");
+    setNotice(String(err.message || err), "warn");
+    // Re-enable: a failed publish is retryable, and the reviewed file is
+    // still the one we would send. The label goes back to the verb, since a
+    // button still reading "Publishing…" would claim work is in flight.
+    $("publish").textContent = "Publish catalog";
+    $("publish").disabled = false;
+  }
+};
+
+/* --- Payout state ---------------------------------------------------------
+   Publishing makes a merchant sellable, NOT payable. Those are different
+   gates: selling needs an account, being paid needs KYC and a payout card.
+   A merchant who published successfully and heard nothing else would
+   reasonably assume money follows automatically - so say where they stand. */
+async function showPayoutState() {
+  try {
+    const path = "/api/merchant/balance";
+    const headers = await sign("GET", path, "");
+    const res = await fetch(API + path, { headers });
+    if (!res.ok) return;
+    const b = await res.json();
+    // Reuse one node rather than inserting a fresh one. Publishing is
+    // retryable - a merchant who corrects a file and publishes again ran this
+    // twice and got the banner twice, which reads as two different pieces of
+    // news about their account rather than one restated.
+    const box = $("errors");
+    let el = document.getElementById("payout-state");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "payout-state";
+      el.style.marginTop = "12px";
+      box.parentNode.insertBefore(el, box.nextSibling);
+    }
+    el.className = "notice" + (b.can_settle ? " ok" : " warn");
+    el.textContent = b.can_settle
+      ? `Payouts enabled. Visa Direct will push your share to the card on file.`
+      : `Payouts on hold: ${b.blocked_reason || "verification pending"}. You can `
+        + `sell now — earnings accrue and are released once the platform verifies `
+        + `your account.`;
+  } catch { /* advisory only - never break the publish flow */ }
+}
+
+/* --- Report ---------------------------------------------------------------
+   Answers the three questions a merchant has after publishing: what went in,
+   how it is findable, and what is actually live. The previous version wrote a
+   single sentence into the shared notice line, which could not say any of it.
+
+   The live-catalog half is read back from the server rather than taken from
+   the upload response, so it reports what is actually there. */
+
+/* Set by a successful publish so the report can distinguish "your products are
+   live" from "you have only analyzed a file". */
+let published = null;
+
+function repRow(kind, mark, title, detail, num) {
+  const row = document.createElement("div");
+  row.className = "rep-row " + kind;
+  const m = document.createElement("span");
+  m.className = "mark"; m.textContent = mark;
+  const mid = document.createElement("div");
+  const b = document.createElement("b"); b.textContent = title;
+  mid.append(b);
+  if (detail) {
+    const d = document.createElement("div");
+    d.className = "detail"; d.textContent = detail;
+    mid.append(d);
+  }
+  const n = document.createElement("span");
+  n.className = "num"; n.textContent = num == null ? "" : String(num);
+  row.append(m, mid, n);
+  return row;
+}
+
+$("report").onclick = async () => {
+  const panel = $("report-panel");
+  const rows = $("report-rows");
+  panel.hidden = false;
+  rows.innerHTML = "";
+  $("report-items").hidden = true;
+  $("report-sub").textContent = "Reading live catalog…";
+
+  try {
+    const res = await fetch(`${API}/api/catalog?limit=500`);
+    if (!res.ok) throw new Error(await readError(res));
+    const out = await res.json();
+    const mine = cred ? out.items.filter(i => i.merchant === cred.merchant.name) : [];
+
+    $("report-sub").textContent = published
+      ? `${cred.merchant.name} · ${published.filename}`
+      : `${cred ? cred.merchant.name : "This account"} · nothing published yet`;
+
+    rows.innerHTML = "";
+
+    if (published) {
+      rows.append(repRow(
+        "ok", "✓", "Products published",
+        `Accepted from ${published.rows_read} row${published.rows_read === 1 ? "" : "s"} in ${published.filename}.`,
+        published.accepted));
+
+      if (published.rejected) {
+        rows.append(repRow(
+          "warn", "!", "Rows skipped",
+          "Listed under the import feedback above, with the field that failed.",
+          published.rejected));
+      }
+
+      // The honest part. Image search is the feature a merchant is most likely
+      // to try right after uploading, and silence here reads as a broken
+      // product rather than as an unset allowlist.
+      // Estimated dimensions are a caveat on a success, not a failure: the
+      // products ARE live. Shown so the merchant knows which numbers came
+      // from us rather than from their feed, and can correct them.
+      if (published.dimensions_estimated) {
+        const via = sourceLabel(published.estimate_sources);
+        rows.append(repRow(
+          "warn", "≈", "Dimensions estimated",
+          `${published.dimensions_estimated} product${published.dimensions_estimated === 1 ? " was" : "s were"} `
+          + "missing a measurement, filled in from the dimensions your feed did supply "
+          + `(via ${via}). They are published and placeable — replace them with your own `
+          + "numbers when you have them.",
+          published.dimensions_estimated));
+      }
+
+      const n = published.image_searchable;
+      if (published.accepted > 0 && n === published.accepted) {
+        rows.append(repRow(
+          "ok", "◉", "Searchable by photo",
+          "Every published product has an image vector, so it can be found by reverse image search.",
+          n));
+      } else if (published.accepted > 0) {
+        rows.append(repRow(
+          "warn", "◎", "Searchable by text only",
+          `${published.accepted - n} of ${published.accepted} products have no image vector, so their `
+          + "photos could not be fetched — usually because the image host is not on the platform's "
+          + "image allowlist. They are live and rank on text, but will not appear in reverse image "
+          + "search until an operator allowlists the host.",
+          `${n}/${published.accepted}`));
+      }
+    } else {
+      rows.append(repRow(
+        "warn", "◎", "Not published yet",
+        "This file has been analyzed but nothing is live. Press Publish catalog to make these "
+        + "products discoverable.",
+        null));
+    }
+
+    rows.append(repRow(
+      mine.length ? "ok" : "warn",
+      mine.length ? "✓" : "◎",
+      "Live under your account",
+      `The platform catalog holds ${out.count} product${out.count === 1 ? "" : "s"} in total.`,
+      mine.length));
+
+    if (mine.length) {
+      const list = $("report-list");
+      list.innerHTML = "";
+      $("report-items-cap").textContent = `Published products (${mine.length})`;
+      // Only the rows from this publish can be labelled for image search; the
+      // response counts vectors but does not say which items got one, so
+      // products from an earlier session are left unlabelled rather than
+      // guessed at.
+      const labelled = published && published.accepted === published.image_searchable;
+      for (const it of mine) {
+        const r = document.createElement("div");
+        r.className = "rep-item";
+        const t = document.createElement("span");
+        t.className = "t"; t.textContent = it.title; t.title = it.title;
+        const pr = document.createElement("span");
+        pr.className = "p";
+        pr.textContent = `${it.currency} ${(it.price_cents / 100).toFixed(2)}`;
+        const st = document.createElement("span");
+        st.className = "img-state " + (labelled ? "yes" : "no");
+        st.textContent = labelled ? "photo + text" : "text only";
+        r.append(t, pr, st);
+        list.append(r);
+      }
+      $("report-items").hidden = false;
+    }
+  } catch (err) {
+    $("report-sub").textContent = "";
+    rows.innerHTML = "";
+    rows.append(repRow("warn", "!", "Could not load the report", String(err.message || err), null));
+  }
+};
+
+/* --- File preview ---------------------------------------------------------
+   Reading the head of the file in the browser, before any upload. The point is
+   to answer "is this the right export?" - a filename cannot, and a merchant
+   who uploads the wrong one only finds out from a validation report about
+   products they have never heard of. */
+
+const PREVIEW_ROWS = 8;
+
+/* A real CSV split, not text.split(","). Catalog rows are full of quoted
+   commas ("Sofa, 3-seat") and escaped quotes, and a naive split shifts every
+   later column - which would make the preview lie about the merchant's data
+   in exactly the cases they most need to check. */
+function parseCsv(text, maxRows) {
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  const endField = () => { row.push(field); field = ""; };
+  const endRow = () => {
+    endField();
+    // Skip the blank final row a trailing newline produces.
+    if (row.length > 1 || row[0] !== "") rows.push(row);
+    row = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }   // "" is a literal quote
+        else quoted = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === ",") endField();
+    else if (c === "\n") { endRow(); if (rows.length > maxRows) break; }
+    else if (c !== "\r") field += c;
+  }
+  if (field !== "" || row.length) endRow();
+  return rows;
+}
+
+/* JSON catalogs preview as a table too, so both formats read the same way.
+   Columns are the union of the first few objects' keys - feeds are not
+   obliged to be uniform, and a key missing from row 1 still matters. */
+function jsonToRows(text, maxRows) {
+  const data = JSON.parse(text);
+  const items = Array.isArray(data) ? data : (data.products || data.items || []);
+  if (!Array.isArray(items) || !items.length) return null;
+  const head = items.slice(0, maxRows);
+  const cols = [];
+  for (const o of head) {
+    if (o && typeof o === "object") {
+      for (const k of Object.keys(o)) if (!cols.includes(k)) cols.push(k);
+    }
+  }
+  if (!cols.length) return null;
+  const fmt = v => v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+  return {
+    rows: [cols, ...head.map(o => cols.map(c => fmt(o && o[c])))],
+    total: items.length,
+  };
+}
+
+const fmtBytes = n =>
+  n < 1024 ? `${n} B`
+  : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB`
+  : `${(n / 1048576).toFixed(1)} MB`;
+
+function clearPreview() {
+  $("picked").hidden = true;
+  $("preview").hidden = true;
+  $("preview-table").innerHTML = "";
+}
+
+async function showPreview(file) {
+  $("picked-name").textContent = file.name;
+  $("picked-meta").textContent = fmtBytes(file.size);
+  $("picked").hidden = false;
+
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    $("picked-meta").textContent = `${fmtBytes(file.size)} · could not be read`;
+    return;
+  }
+
+  let rows = null, total = null;
+  if (file.name.toLowerCase().endsWith(".json")) {
+    try {
+      const out = jsonToRows(text, PREVIEW_ROWS);
+      if (out) { rows = out.rows; total = out.total; }
+    } catch {
+      // Malformed JSON is the server's call to report precisely; here it just
+      // means there is nothing to show.
+      rows = null;
+    }
+  } else {
+    rows = parseCsv(text, PREVIEW_ROWS);
+    // Count data rows without parsing the whole file: newlines outside quotes
+    // is close enough for a "showing N of M" line, and it is only a caption.
+    const nl = (text.match(/\n/g) || []).length;
+    total = Math.max(0, text.endsWith("\n") ? nl - 1 : nl);
+  }
+
+  if (!rows || rows.length < 2) {
+    $("preview").hidden = true;
+    $("picked-meta").textContent = `${fmtBytes(file.size)} · no readable rows found`;
+    return;
+  }
+
+  const [header, ...body] = rows;
+  const shown = body.slice(0, PREVIEW_ROWS);
+  $("picked-meta").textContent =
+    `${fmtBytes(file.size)} · ${header.length} columns`
+    + (total ? ` · ${total} row${total === 1 ? "" : "s"}` : "");
+  $("preview-note").textContent =
+    total > shown.length ? `first ${shown.length} of ${total}` : `${shown.length} rows`;
+
+  // Built with DOM calls rather than innerHTML: every value here is the
+  // merchant's own file content and must never be parsed as markup.
+  const table = $("preview-table");
+  table.innerHTML = "";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  hr.append(document.createElement("th"));            // row-number gutter
+  for (const h of header) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = document.createElement("tbody");
+  shown.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    const num = document.createElement("td");
+    num.className = "rownum";
+    num.textContent = String(i + 1);
+    tr.append(num);
+    // Pad short rows so cells stay under the right header.
+    for (let c = 0; c < header.length; c++) {
+      const td = document.createElement("td");
+      td.textContent = r[c] ?? "";
+      td.title = r[c] ?? "";
+      tr.append(td);
+    }
+    tbody.append(tr);
+  });
+  table.append(thead, tbody);
+  $("preview").hidden = false;
+}
+
+/* Dragging a file onto the zone should feel like a target, and dropping one
+   should populate the input the same way choosing it does. */
+const drop = $("drop"), input = $("catalog-file");
+["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove("over");
+}));
+drop.addEventListener("drop", ev => {
+  if (!ev.dataTransfer.files.length) return;
+  input.files = ev.dataTransfer.files;
+  // Assigning .files does not fire `change`, so the preview and the reset it
+  // carries have to be triggered by hand.
+  input.dispatchEvent(new Event("change"));
+});
+
+/* A new file invalidates the previous review: the counts on screen describe
+   the old one, and Publish must not send bytes nobody looked at. */
+input.addEventListener("change", () => {
+  previewed = null;
+  $("publish").disabled = true;
+  $("publish").textContent = "Publish catalog";
+  $("report").disabled = true;
+  $("report-panel").hidden = true;
+  setBeat(1);
+
+  const file = input.files[0];
+  if (file) {
+    showPreview(file);
+    setStatus(`Ready to analyze ${file.name}`, "");
+    setNotice("Press Analyze to validate this file. Nothing is published by that step.");
+  } else {
+    clearPreview();
+  }
+});
+
+/* Sample feeds are fetched and pushed through the SAME path a chosen file
+   takes - into the file input via DataTransfer - so nothing downstream needs
+   a special case for "this one came from a link". */
+document.querySelectorAll(".sample").forEach(btn => {
+  btn.onclick = async () => {
+    const name = btn.dataset.name;
+    btn.disabled = true;
+    setStatus(`Loading ${name}…`, "");
+    try {
+      const res = await fetch(btn.dataset.file);
+      if (!res.ok) throw new Error(`could not load ${name} (HTTP ${res.status})`);
+      const dt = new DataTransfer();
+      dt.items.add(new File([await res.blob()], name, { type: "text/csv" }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change"));
+    } catch (err) {
+      setStatus("Could not load sample", "warn");
+      setNotice(String(err.message || err), "warn");
+    } finally {
+      btn.disabled = false;
+    }
+  };
+});
+
+/* Removing the file clears the picker too, so the input and what is on screen
+   cannot disagree about which catalog is staged. */
+$("picked-clear").onclick = () => {
+  input.value = "";
+  input.dispatchEvent(new Event("change"));
+  setStatus("Waiting for catalog", "");
+  setNotice("Analyze a catalog to see validation feedback.");
+  setStats("—", "—", "—");
+};
+
+/* A returning merchant keeps its identity; the catalog still needs analyzing. */
+if (cred) {
+  $("merchant-name").value = cred.merchant.name;
+  $("merchant-email").value = cred.merchant.email || $("merchant-email").value;
+  setStatus(`Signed in as ${cred.merchant.name}`, "ok");
+}
+</script>
+</body>
+</html>

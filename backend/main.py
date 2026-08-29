@@ -13,10 +13,10 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +24,14 @@ from . import config
 from .agent import GraphState, build_graph
 from .models import (
     AgentTokenSummary,
+    CatalogItem,
+    Dimensions,
+    MerchantBalance,
+    MerchantCatalogPush,
+    MerchantCatalogResult,
+    MerchantOnboardRequest,
+    MerchantOnboardResponse,
+    MerchantSummary,
     MandateScope,
     PasskeyAssertionRequest,
     PasskeyCredentialSummary,
@@ -44,6 +52,7 @@ from .models import (
     Opening,
     PaymentIntent,
     PaymentIntentRequest,
+    PaymentIntentStatus,
     PaymentMethod,
     RenderFailure,
     RenderRequest,
@@ -55,7 +64,9 @@ from .models import (
     VerificationChallenge,
     VerifyRequest,
 )
+from . import merchants
 from . import payments
+from . import visa_direct
 from . import vts
 from . import webauthn
 from .rag_engine import (
@@ -67,7 +78,6 @@ from .rag_engine import (
 )
 from .render_engine import RenderProvider, render_layout, render_room
 from .solver import LayoutSolver
-from .seed_data import SEED_ITEMS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("roomhack")
@@ -398,6 +408,7 @@ async def chat(
         "layout": prior_layout,
         "rejected_ids": list(prefs.get("rejected_ids") or []),
         "excluded_roles": list(prefs.get("excluded_roles") or []),
+        "role_counts": dict(prefs.get("role_counts") or {}),
         "size_caps": dict(prefs.get("size_caps") or {}),
     }
 
@@ -496,6 +507,23 @@ async def chat(
                         prefs["excluded_roles"] = sorted(
                             {*(prefs.get("excluded_roles") or []), *parsed["remove_roles"]}
                         )
+                    if parsed.get("role_counts"):
+                        counts = {
+                            k: max(0, int(v))
+                            for k, v in parsed["role_counts"].items()
+                        }
+                        prefs["role_counts"] = {
+                            **(prefs.get("role_counts") or {}),
+                            **counts,
+                        }
+                        # Kept in step with the graph's own reading of a count:
+                        # zero excludes the role, and any positive number
+                        # un-excludes it, so "no chairs" then "two chairs"
+                        # does not leave a stale exclusion behind.
+                        excluded = set(prefs.get("excluded_roles") or [])
+                        excluded |= {k for k, v in counts.items() if v <= 0}
+                        excluded -= {k for k, v in counts.items() if v > 0}
+                        prefs["excluded_roles"] = sorted(excluded)
                     if parsed.get("max_width_cm"):
                         prefs["size_caps"] = {
                             **(prefs.get("size_caps") or {}),
@@ -583,7 +611,10 @@ async def render(req: RenderRequest) -> StreamingResponse:
         raise HTTPException(500, f"corrupt session design: {exc}") from exc
 
     image_b64 = ctx.get("image_b64")
-    items = {i.id: i for i in SEED_ITEMS}
+    # The live index, not SEED_ITEMS: a merchant-published product is in the
+    # catalog and can be chosen into a design, but exists nowhere in the seed
+    # list. Looking it up there renders the design without it, silently.
+    items = {i.id: i for i in index.all_items()}  # type: ignore[attr-defined]
 
     # A composing backend renders the whole room in one call, which is both
     # cheaper and more coherent than six masked inpaints - and every piece
@@ -624,16 +655,16 @@ async def render(req: RenderRequest) -> StreamingResponse:
                 items,
                 only=req.item_ids or None,
             )
-            event = "room_render" if isinstance(result, RoomRender) else "render_failed"
+            ok = isinstance(result, RoomRender)
             payload = result.model_dump(mode="json")
-            if isinstance(result, RoomRender):
+            if ok:
                 payload["progress"] = {"done": 1, "total": 1}
-            yield sse_frame(event, payload)
+            yield sse_frame("room_render" if ok else "render_failed", payload)
             yield sse_frame(
                 "done",
                 {
                     "session_id": req.session_id,
-                    "rendered": 1 if isinstance(result, RoomRender) else 0,
+                    "rendered": 1 if ok else 0,
                     "total": 1,
                     "elapsed_ms": int((time.perf_counter() - started) * 1000),
                 },
@@ -753,7 +784,13 @@ async def swap(req: SwapRequest) -> StreamingResponse:
 
     # Substitute by role. The outgoing item leaves the design entirely, so a
     # swap never grows the piece count - it exchanges one for one.
-    items = {i.id: i for i in SEED_ITEMS}
+    #
+    # Resolved against the live index rather than SEED_ITEMS. A merchant-
+    # published product is orderable and can be in the design, but is absent
+    # from the seed list - and because the comprehension below skips ids it
+    # cannot resolve, looking it up there dropped that piece from the design
+    # and the cart silently, rather than failing.
+    items = {i.id: i for i in index.all_items()}  # type: ignore[attr-defined]
     current = [items[i] for i in selected_ids if i in items]
     outgoing = next((i for i in current if i.role is req.role), None)
     if outgoing is None:
@@ -824,7 +861,13 @@ async def swap(req: SwapRequest) -> StreamingResponse:
         ctx["layout"] = layout.model_dump(mode="json")
 
         # Offer the alternatives again, now priced against the new pick.
-        alternatives = _reprice_options(ctx.get("options"), updated, budget_cents, cart)
+        alternatives = _reprice_options(
+            ctx.get("options"),
+            updated,
+            budget_cents,
+            cart,
+            index.get,  # type: ignore[attr-defined]
+        )
         if alternatives:
             yield sse_frame("alternatives", {"options": alternatives})
 
@@ -853,13 +896,22 @@ async def swap(req: SwapRequest) -> StreamingResponse:
 
 
 def _reprice_options(
-    stored: object, selected: list, budget_cents: int, cart: Cart
+    stored: object,
+    selected: list,
+    budget_cents: int,
+    cart: Cart,
+    lookup: Callable[[str], CatalogItem | None],
 ) -> list[dict]:
     """Re-point the stored alternatives at the new selection.
 
     Deltas and affordability were computed against the item that just left the
     design, so leaving them untouched would price every option against a piece
     the user no longer has.
+
+    `lookup` resolves the outgoing item so it can be offered back as an
+    alternative. It is passed in rather than read from SEED_ITEMS because a
+    merchant-published piece is not in the seed list, and a user who swaps one
+    away needs the same route back that any other piece gets.
     """
     if not isinstance(stored, list):
         return []
@@ -889,9 +941,7 @@ def _reprice_options(
         outgoing_id = entry.get("selected_id")
         if outgoing_id and outgoing_id != chosen.id:
             if not any(a["item_id"] == outgoing_id for a in alts):
-                previous = next(
-                    (i for i in SEED_ITEMS if i.id == outgoing_id), None
-                )
+                previous = lookup(outgoing_id)
                 if previous is not None:
                     alts.insert(
                         0,
@@ -1311,6 +1361,10 @@ def _token_summary(token: vts.NetworkToken) -> AgentTokenSummary:
             spent_cents=mandate.spent_cents,
             remaining_cents=mandate.remaining_cents,
             allowed_mccs=sorted(mandate.allowed_mccs),
+            # Derived from the mandate's ACTUAL categories rather than left at
+            # the model default: a user who narrowed their agent to furniture
+            # alone should not be shown the umbrella label for everything.
+            category_label=vts.labels_for_mccs(mandate.allowed_mccs),
             allowed_merchants=sorted(mandate.allowed_merchants),
             max_merchants_per_transaction=mandate.max_merchants_per_transaction,
             require_user_presence=mandate.require_user_presence,
@@ -1396,6 +1450,480 @@ async def agent_token_provision(req: ProvisionTokenRequest) -> dict:
         # Shown once, held by the agent thereafter.
         "mandate_credential": credential,
     }
+
+
+# --- Merchant platform -----------------------------------------------------
+#
+# Lets third-party merchants onboard, publish products and see what they are
+# owed. Requests are HMAC-signed rather than bearer-authenticated: a leaked
+# bearer token is directly replayable, while a signature covers the method,
+# path, timestamp, nonce and body, so a captured request cannot be redirected
+# to a different endpoint or replayed at all.
+#
+#   POST /api/merchant/onboard        register; returns the API secret ONCE
+#   POST /api/merchant/catalog        publish products (signed)
+#   GET  /api/merchant/me             this merchant's account (signed)
+#   GET  /api/merchant/balance        what is owed, and whether it can settle
+#   GET  /api/merchant/payouts        per-order breakdown (signed)
+#   POST /api/merchant/{id}/kyc       platform-side KYC outcome
+
+
+def _merchant_error(exc: merchants.MerchantError) -> HTTPException:
+    return HTTPException(exc.status, exc.detail)
+
+
+def _merchant_summary(m: merchants.Merchant) -> MerchantSummary:
+    return MerchantSummary(
+        id=m.id,
+        name=m.name,
+        legal_name=m.legal_name,
+        email=m.email,
+        country=m.country,
+        mcc=m.mcc,
+        status=m.status.value,  # type: ignore[arg-type]
+        kyc_status=m.kyc_status.value,  # type: ignore[arg-type]
+        commission_bps=m.commission_bps,
+        payout_account_last4=m.payout_account_last4,
+        webhook_url=m.webhook_url,
+        created_at=m.created_at,
+        can_sell=m.can_sell,
+        can_settle=m.can_settle,
+    )
+
+
+async def _authenticated_merchant(
+    request: Request, raw_body: str | None = None
+) -> merchants.Merchant:
+    """Verify a signed merchant request.
+
+    The body is signed byte-for-byte. Re-serializing parsed JSON would change
+    whitespace and key order and break every signature, so the raw bytes are
+    what both sides agree on.
+
+    `raw_body` exists for multipart endpoints: FastAPI consumes the request
+    stream to parse a form, so by the time this runs `request.body()` raises
+    "Stream consumed". Those routes read the body themselves, before touching
+    any form field, and pass it in.
+    """
+    headers = request.headers
+    key_id = headers.get("x-merchant-key", "")
+    signature = headers.get("x-merchant-signature", "")
+    timestamp = headers.get("x-merchant-timestamp", "")
+    nonce = headers.get("x-merchant-nonce", "")
+    if not all((key_id, signature, timestamp, nonce)):
+        raise HTTPException(
+            401,
+            "signed request required: x-merchant-key, x-merchant-signature, "
+            "x-merchant-timestamp and x-merchant-nonce headers",
+        )
+    raw = raw_body if raw_body is not None else (await request.body()).decode()
+    try:
+        return merchants.authenticate(
+            key_id=key_id,
+            signature=signature,
+            timestamp=timestamp,
+            nonce=nonce,
+            method=request.method,
+            path=request.url.path,
+            body=raw,
+        )
+    except merchants.MerchantError as exc:
+        raise _merchant_error(exc) from exc
+
+
+@app.post("/api/merchant/onboard", response_model=MerchantOnboardResponse)
+async def merchant_onboard(req: MerchantOnboardRequest) -> MerchantOnboardResponse:
+    """Register a merchant and issue its first API credential.
+
+    Open by design so a merchant can self-serve, but the account starts
+    PENDING with UNVERIFIED KYC: it may list products and receive orders,
+    and nothing can settle to it until a human verifies who they are.
+    """
+    try:
+        merchant, key_id, secret = merchants.onboard(
+            name=req.name,
+            legal_name=req.legal_name,
+            email=req.email,
+            country=req.country,
+            payout_account_last4=req.payout_account_last4,
+            payout_pan=req.payout_pan,
+            webhook_url=req.webhook_url,
+        )
+    except merchants.MerchantError as exc:
+        raise _merchant_error(exc) from exc
+    merchants.SECRETS[key_id] = secret
+    return MerchantOnboardResponse(
+        merchant=_merchant_summary(merchant), key_id=key_id, api_secret=secret
+    )
+
+
+@app.get("/api/merchant/me", response_model=MerchantSummary)
+async def merchant_me(request: Request) -> MerchantSummary:
+    return _merchant_summary(await _authenticated_merchant(request))
+
+
+@app.post("/api/merchant/catalog", response_model=MerchantCatalogResult)
+async def merchant_catalog(request: Request) -> MerchantCatalogResult:
+    """Publish products into the live catalog.
+
+    The merchant name and MCC come from the authenticated credential, never
+    from the payload, so a merchant cannot publish under another's name or
+    assign itself a category that would place it inside an agent's mandate.
+    """
+    merchant = await _authenticated_merchant(request)
+    index = STATE.get("index")
+    if index is None:  # pragma: no cover
+        raise HTTPException(503, "server still starting")
+
+    try:
+        push = MerchantCatalogPush.model_validate_json(await request.body())
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid catalog payload: {exc}") from exc
+
+    result = MerchantCatalogResult()
+    added: list[CatalogItem] = []
+    seen_skus: set[str] = set()
+    for product in push.products:
+        # Per-product validation, collecting errors rather than failing the
+        # whole push: a merchant with 200 products and one bad URL should be
+        # told which one, not have the batch rejected.
+        if product.sku in seen_skus:
+            result.rejected += 1
+            result.errors.append(
+                {"sku": product.sku, "error": "duplicate SKU in this upload"}
+            )
+            continue
+        seen_skus.add(product.sku)
+        try:
+            checkout_url = merchants.validate_checkout_url(product.checkout_url)
+        except merchants.MerchantError as exc:
+            result.rejected += 1
+            result.errors.append({"sku": product.sku, "error": exc.detail})
+            continue
+        try:
+            item = CatalogItem(
+                # Namespaced by merchant id so two merchants can use the same
+                # SKU without colliding.
+                id=f"{merchant.id}:{product.sku}",
+                merchant=merchant.name,
+                title=product.title,
+                role=product.role,
+                price_cents=product.price_cents,
+                currency=product.currency,
+                dimensions=Dimensions(
+                    width_cm=product.width_cm,
+                    depth_cm=product.depth_cm,
+                    height_cm=product.height_cm,
+                ),
+                materials=product.materials,
+                primary_color=product.primary_color,
+                swatch=product.swatch,
+                style_tags=product.style_tags,
+                image_url=product.image_url,
+                checkout_url=checkout_url,
+                in_stock=product.in_stock,
+                description=product.description,
+            )
+        except ValueError as exc:
+            result.rejected += 1
+            result.errors.append({"sku": product.sku, "error": str(exc)})
+            continue
+        added.append(item)
+        result.item_ids.append(item.id)
+        result.accepted += 1
+
+    if added:
+        try:
+            index.add_items(added)  # type: ignore[attr-defined]
+        except AttributeError:
+            # The index predates merchant ingestion. Report honestly rather
+            # than claiming products were published into a catalog that
+            # cannot accept them.
+            raise HTTPException(
+                501,
+                "this catalog index does not support runtime ingestion yet",
+            ) from None
+        # Keep the mandate's category map in step, so an agent token locked to
+        # furniture recognises this merchant's category.
+        vts.MERCHANT_MCC.setdefault(merchant.name, merchant.mcc)
+    for warning in merchants.check_domain_consistency(
+        merchant, [i.checkout_url for i in added]
+    ):
+        result.errors.append({"sku": "", "error": f"warning: {warning}"})
+    return result
+
+
+@app.post("/api/merchant/catalog/upload")
+async def merchant_catalog_upload(request: Request) -> dict:
+    """Upload a CSV or JSON catalogue feed.
+
+    Two-phase by default: `publish=false` (the default) normalizes and
+    validates, and returns exactly what WOULD be published plus every problem
+    found - without changing anything. The merchant fixes the reported rows
+    and re-uploads with `publish=true`.
+
+    A preview step matters more here than in most upload flows: these products
+    become things a shopper can be charged for, and a feed that silently
+    published 400 correct rows and dropped 12 would leave the merchant
+    believing their catalogue was live when part of it was not.
+
+    Authentication is the same HMAC signature as the JSON endpoint. Multipart
+    bodies are signed over the raw request body like any other.
+    """
+    # Read the raw body BEFORE parsing the form: signature verification needs
+    # the exact bytes, and parsing consumes the stream.
+    raw = await request.body()
+    merchant = await _authenticated_merchant(
+        request, raw_body=raw.decode("utf-8", "replace")
+    )
+    index = STATE.get("index")
+    if index is None:  # pragma: no cover
+        raise HTTPException(503, "server still starting")
+
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        raise HTTPException(400, "a `file` part is required (.csv or .json)")
+    publish = str(form.get("publish", "")).lower() in ("1", "true", "yes", "on")
+    filename = getattr(upload, "filename", "") or "upload"
+    content = await upload.read()
+    if len(content) > config.MAX_CATALOG_UPLOAD_BYTES:
+        raise HTTPException(
+            413,
+            f"catalogue file is too large "
+            f"({len(content) // 1024}KB, limit {config.MAX_CATALOG_UPLOAD_BYTES // 1024}KB)",
+        )
+
+    try:
+        rows = merchants.parse_upload(content, filename)
+    except merchants.MerchantError as exc:
+        raise _merchant_error(exc) from exc
+
+    if not rows:
+        raise HTTPException(400, "the file contained no product rows")
+
+    products, problems = merchants.normalize_feed(rows)
+
+    # Checkout URLs are validated after normalization, since normalization is
+    # what resolves which column held the link in the first place.
+    valid: list[dict] = []
+    for product in products:
+        try:
+            product["checkout_url"] = merchants.validate_checkout_url(
+                product["checkout_url"]
+            )
+        except merchants.MerchantError as exc:
+            problems.append({"row": "", "sku": product["sku"], "error": exc.detail})
+            continue
+        valid.append(product)
+
+    # Rows that only reached the catalog because a dimension was estimated.
+    # Surfaced separately from the accepted count so the merchant can see that
+    # some of their products carry numbers they did not supply - and by which
+    # source, since a model estimate and a lookup-table one are not equally
+    # good. Never folded into `normalized`: an estimate is a published product
+    # AND a caveat, not one or the other.
+    estimated = [p for p in valid if p.get("estimated_dims")]
+    result = {
+        "filename": filename,
+        "rows_read": len(rows),
+        "normalized": len(valid),
+        "rejected": len(problems),
+        "errors": problems[:100],
+        "published": False,
+        "preview": valid[:5],
+        "dimensions_estimated": len(estimated),
+        "estimate_sources": sorted({
+            p.get("estimate_source", "") for p in estimated if p.get("estimate_source")
+        }),
+    }
+
+    if not publish:
+        result["next_step"] = (
+            "Nothing was published. Fix the rows listed in `errors`, then "
+            "re-upload with publish=true."
+        )
+        return result
+
+    added: list[CatalogItem] = []
+    for product in valid:
+        role = _role_from_category(product["category"], product["title"])
+        if role is None:
+            label = product["category"] or product["title"] or "unknown"
+            problems.append(
+                {
+                    "row": "",
+                    "sku": product["sku"],
+                    "error": (
+                        f"category {label!r} does not map to a placeable role. "
+                        "This catalog places sofas, accent chairs, coffee "
+                        "tables, floor lamps and rugs."
+                    ),
+                }
+            )
+            continue
+        try:
+            item = CatalogItem(
+                id=f"{merchant.id}:{product['sku']}",
+                merchant=merchant.name,
+                title=product["title"],
+                role=role,
+                price_cents=product["price_cents"],
+                currency=product["currency"],
+                dimensions=Dimensions(
+                    width_cm=product["width_cm"],
+                    depth_cm=product["depth_cm"],
+                    height_cm=product["height_cm"],
+                ),
+                materials=product["materials"],
+                primary_color=product["primary_color"],
+                swatch="#cccccc",
+                image_url=product["image_url"],
+                checkout_url=product["checkout_url"],
+                in_stock=product["in_stock"],
+                description=product["description"],
+            )
+        except ValueError as exc:
+            problems.append({"row": "", "sku": product["sku"], "error": str(exc)})
+            continue
+        added.append(item)
+
+    with_images = 0
+    if added:
+        try:
+            index.add_items(added)  # type: ignore[attr-defined]
+        except AttributeError:
+            raise HTTPException(
+                501, "this catalog index does not support runtime ingestion yet"
+            ) from None
+        vts.MERCHANT_MCC.setdefault(merchant.name, merchant.mcc)
+        # How many products ended up with an image vector, so the merchant is
+        # told whether "find one that looks like this" will surface them.
+        # Reported rather than assumed: their image host is very likely not on
+        # IMAGE_FETCH_ALLOWED_HOSTS, in which case these products are live and
+        # text-searchable but invisible to reverse image search - a difference
+        # they would otherwise only discover by noticing an absence.
+        vectors = getattr(index, "_image_vectors", {})
+        with_images = sum(1 for i in added if i.id in vectors)
+
+    result["published"] = True
+    result["image_searchable"] = with_images
+    if added and with_images < len(added):
+        result["image_search_note"] = (
+            f"{len(added) - with_images} of {len(added)} published products have no "
+            "image vector, so they rank on text only and will not appear in "
+            "reverse image search. Usually the image host is not on the "
+            "platform's image allowlist, or the image could not be fetched."
+        )
+    result["accepted"] = len(added)
+    result["rejected"] = len(problems)
+    result["errors"] = problems[:100]
+    result["item_ids"] = [i.id for i in added]
+    return result
+
+
+def _role_from_category(category: str, title: str = "") -> Role | None:
+    """Map a merchant's own category vocabulary onto our Role enum.
+
+    Substring matching rather than exact: feeds say "3-seater sofas",
+    "Living / Seating" and "SOFA_LARGE" for the same thing. The title is a
+    fallback because plenty of feeds pair a useless category column
+    ("Furniture") with a precise name ("Fjord Coffee Table").
+
+    Returns None when nothing matches. The Role enum is deliberately small -
+    it drives the layout solver, which only knows how to place these five
+    pieces - so a product outside it cannot be placed, and saying so is more
+    useful to the merchant than filing it under a role it does not fill.
+    """
+    haystack = f"{category} {title}".lower()
+    table: list[tuple[tuple[str, ...], Role]] = [
+        # Most specific first: "coffee table" must beat a bare "table", and
+        # "floor lamp" must not be swallowed by the chair rule.
+        (("coffee table", "cocktail table", "centre table", "center table"), Role.COFFEE_TABLE),
+        (("floor lamp", "standing lamp", "arc lamp", "torchiere"), Role.FLOOR_LAMP),
+        (("sofa", "couch", "settee", "loveseat", "sectional"), Role.SOFA),
+        (("armchair", "accent chair", "lounge chair", "occasional chair", "chair"), Role.ACCENT_CHAIR),
+        (("rug", "carpet", "runner"), Role.RUG),
+    ]
+    for needles, role in table:
+        if any(n in haystack for n in needles):
+            return role
+    return None
+
+
+@app.get("/api/merchant/balance", response_model=MerchantBalance)
+async def merchant_balance(request: Request) -> MerchantBalance:
+    """What this merchant is owed, and whether it can actually be paid."""
+    merchant = await _authenticated_merchant(request)
+    return MerchantBalance(**merchants.balance_for(merchant.id))
+
+
+@app.get("/api/merchant/payouts")
+async def merchant_payouts(request: Request) -> dict:
+    """Per-order breakdown. Every record is `pending_settlement`: this
+    codebase computes what is owed but moves no money."""
+    merchant = await _authenticated_merchant(request)
+    return {
+        "merchant_id": merchant.id,
+        "payouts": merchants.payouts_for(merchant.id),
+        "disclaimer": (
+            "SIMULATED - amounts are computed and reconciled, but no funds are "
+            "transferred. Real settlement requires an acquirer relationship."
+        ),
+    }
+
+
+@app.post("/api/merchant/{merchant_id}/settle")
+async def merchant_settle(merchant_id: str, body: dict | None = None) -> dict:
+    """Pay a merchant's pending balance via Visa Direct.
+
+    Platform-side, and behind operator auth in a real deployment - this is the
+    endpoint that moves money. `dry_run` reports what would be paid without
+    attempting anything.
+
+    When live payouts are not configured this returns `simulated: true` and
+    marks nothing paid, rather than reporting a settlement that did not
+    happen.
+    """
+    dry_run = bool((body or {}).get("dry_run"))
+    try:
+        return merchants.settle(merchant_id, dry_run=dry_run)
+    except merchants.MerchantError as exc:
+        raise _merchant_error(exc) from exc
+
+
+@app.get("/api/payouts/status")
+async def payout_status() -> dict:
+    """Whether live Visa Direct payouts are configured, and what is missing."""
+    return visa_direct.status()
+
+
+@app.post("/api/merchant/{merchant_id}/kyc", response_model=MerchantSummary)
+async def merchant_kyc(merchant_id: str, body: dict) -> MerchantSummary:
+    """Record a KYC outcome.
+
+    Platform-side, and in a real deployment this sits behind operator auth -
+    it is the switch that decides whether money may move to an account.
+    """
+    status = str(body.get("kyc_status") or "")
+    try:
+        kyc = merchants.KycStatus(status)
+    except ValueError as exc:
+        raise HTTPException(
+            400,
+            f"kyc_status must be one of: "
+            f"{', '.join(k.value for k in merchants.KycStatus)}",
+        ) from exc
+    try:
+        return _merchant_summary(merchants.set_kyc(merchant_id, kyc))
+    except merchants.MerchantError as exc:
+        raise _merchant_error(exc) from exc
+
+
+@app.get("/api/merchant", response_model=list[MerchantSummary])
+async def merchant_list() -> list[MerchantSummary]:
+    """Every registered merchant. Platform-side view."""
+    return [_merchant_summary(m) for m in merchants.list_merchants()]
 
 
 @app.post("/api/agent-token/revoke", response_model=AgentTokenSummary)
@@ -1576,12 +2104,20 @@ async def shop_the_look(
 
 @app.get("/api/catalog")
 async def catalog(limit: int = 100) -> dict:
-    """Inspect the seeded catalog. Useful when debugging retrieval."""
-    from .seed_data import SEED_ITEMS
+    """Inspect the live catalog. Useful when debugging retrieval.
 
+    Reports what retrieval can actually return - seeded items plus anything
+    merchants have published - rather than the seed list alone, so a merchant
+    debugging a missing product can see whether it was ingested at all.
+    """
+    index = STATE.get("index")
+    if index is None:  # pragma: no cover - only before lifespan completes
+        raise HTTPException(503, "server still starting")
+
+    items = index.all_items()  # type: ignore[attr-defined]
     return {
-        "count": len(SEED_ITEMS),
+        "count": len(items),
         "items": [
-            _rewrite_image_urls(i.model_dump(mode="json")) for i in SEED_ITEMS[:limit]
+            _rewrite_image_urls(i.model_dump(mode="json")) for i in items[:limit]
         ],
     }

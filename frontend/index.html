@@ -243,30 +243,67 @@
      returns them, so the demo geometry matches the real payload. */
   .inv-frame { position:relative; }
   .inv-frame img { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:var(--r-lg); display:block; }
-  .inv-box {
-    position:absolute; border:2px solid var(--accent); border-radius:6px;
-    background:transparent; padding:0; cursor:pointer;
-    box-shadow:0 0 0 9999px transparent; transition:background .18s ease, border-color .18s ease;
+  /* Three detections stack in the lower half of a real room photo, so three
+     full rectangles cross each other and read as noise - and their hit areas
+     fight over the same pixels. Instead each detection gets one marker pinned
+     at the region's centre, and only the selected region draws geometry: four
+     corner brackets, the idiom a detector actually uses. One region is outlined
+     at a time, so nothing ever overlaps. */
+  .inv-mark {
+    position:absolute; transform:translate(-50%,-50%); z-index:3;
+    /* width:auto overrides the global button rule in shared.css, which sets
+       width:100% and would stretch each marker across the whole photo. */
+    display:inline-flex; width:auto; align-items:center; gap:6px;
+    margin:0; padding:5px 11px 5px 6px;
+    border:0; border-radius:var(--r-pill); cursor:pointer;
+    background:rgba(253,252,250,.94); box-shadow:0 3px 12px #26333f4d;
+    font:650 11px var(--sans); letter-spacing:.02em; color:var(--ink);
+    white-space:nowrap; transition:background .18s ease, color .18s ease, transform .18s ease;
   }
-  /* Three boxes overlap heavily in a real room photo, so all three at full
-     strength read as noise. Unselected boxes stay faint and drop their label;
-     the selected one comes forward. Only one result is shown at a time, so
-     only one label is ever needed. */
-  .inv-box { opacity:.5; }
-  .inv-box:hover { background:rgba(168,85,42,.16); opacity:1; }
-  .inv-box.on { background:rgba(168,85,42,.2); border-color:var(--accent-dark); border-width:3px; opacity:1; z-index:1; }
-  .inv-box:focus-visible { outline:3px solid var(--accent-dark); outline-offset:2px; opacity:1; }
-  .inv-box b { opacity:0; transition:opacity .18s ease; }
-  .inv-box.on b, .inv-box:hover b, .inv-box:focus-visible b { opacity:1; }
-  /* The label rides the top-left corner of its box, flipping inside when the
-     box is near the top edge so it is never clipped by the photo. */
-  .inv-box b {
-    position:absolute; left:-2px; bottom:100%; margin-bottom:4px;
-    background:var(--ink); color:#fff; font:600 10px var(--sans);
-    letter-spacing:.04em; text-transform:uppercase; padding:3px 7px;
-    border-radius:5px; white-space:nowrap;
+  /* The dot carries the accent so the marker reads as a pin, not a chip. */
+  .inv-mark::before {
+    content:""; width:11px; height:11px; border-radius:50%; flex:none;
+    background:var(--accent); border:2px solid rgba(255,255,255,.95);
+    box-sizing:content-box;
   }
-  .inv-box.low b { bottom:auto; top:-2px; margin-bottom:0; }
+  .inv-mark:hover { transform:translate(-50%,-50%) scale(1.06); }
+  .inv-mark:focus-visible { outline:3px solid var(--accent-dark); outline-offset:3px; }
+  .inv-mark.on { background:var(--ink); color:#fff; }
+  .inv-mark.on::before { background:#fff; border-color:var(--accent); }
+
+  /* The halo invites the first press, and retires once anything is chosen. */
+  .inv-mark::after {
+    content:""; position:absolute; left:11px; top:50%; width:15px; height:15px;
+    margin:-7px 0 0 -2px; border-radius:50%; border:2px solid var(--accent);
+    pointer-events:none; opacity:0;
+  }
+  .inv-frame.idle .inv-mark::after { opacity:1; animation:dot-pulse 1.6s ease-out infinite; }
+
+  /* Corner brackets: four L-shapes built from one element's borders, clipped so
+     only the corners show. Drawn for the selected detection alone. */
+  .inv-region {
+    position:absolute; pointer-events:none; opacity:0;
+    transition:opacity .2s ease;
+  }
+  .inv-region.on { opacity:1; }
+  .inv-region i {
+    position:absolute; width:18px; height:18px;
+    border:3px solid var(--accent); border-radius:3px;
+  }
+  .inv-region i:nth-child(1) { left:-2px;  top:-2px;    border-right:0; border-bottom:0; }
+  .inv-region i:nth-child(2) { right:-2px; top:-2px;    border-left:0;  border-bottom:0; }
+  .inv-region i:nth-child(3) { left:-2px;  bottom:-2px; border-right:0; border-top:0; }
+  .inv-region i:nth-child(4) { right:-2px; bottom:-2px; border-left:0;  border-top:0; }
+  /* A wash inside the brackets separates the chosen piece from the rest of the
+     room without hiding it. */
+  .inv-region::before {
+    content:""; position:absolute; inset:0; border-radius:6px;
+    background:rgba(168,85,42,.14);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .inv-frame.idle .inv-mark::after { animation:none; opacity:.9; }
+    .inv-mark, .inv-region { transition:none; }
+  }
   .inv-scanline {
     position:absolute; left:0; right:0; height:2px; z-index:2;
     background:linear-gradient(90deg, transparent, var(--accent), transparent);
@@ -420,11 +457,10 @@
   <span class="wordmark">Room<span>Hack</span></span>
   <nav class="head-nav">
     <a href="#how">How it works</a>
-    <a href="#assurance">Assurance</a>
     <a href="app/">Planner</a>
+    <a href="merchant/">For merchants</a>
   </nav>
   <a class="btn btn-primary head-cta" href="app/">Start designing</a>
-  <a class="btn secondary" href="merchant/demo.html" style="width:auto;margin-left:12px;text-decoration:none;font-size:13px">For merchants</a>
 </header>
 
 <section class="wrap hero">
@@ -777,7 +813,7 @@ const PANELS = {
   },
   investigate: {
     title: "Point at what you already own",
-    sub: "Three pieces were detected. Tap an outline to identify it.",
+    sub: "Three pieces were detected. Tap a marker to identify it.",
   },
 };
 
@@ -924,10 +960,13 @@ holdBtn.addEventListener("keydown", e => {
    exactly as Detection emits them, and `confident` carries the same meaning:
    false means "the closest thing we sell", not an identification. Live
    detection needs a vision key and a round trip, neither of which the hero
-   can wait for. */
+   can wait for. `mx`/`my` are presentation only - where to pin the marker when
+   a region's centre would collide with its neighbour's - and are not part of
+   the Detection payload. */
 const DETECTIONS = [
   {
     label: "Sofa", x1: 0.05, y1: 0.53, x2: 0.92, y2: 0.79, confident: true,
+    mx: 0.29, my: 0.62,
     caption: "curved modular sofa in cream boucle, low rounded arms, plinth base",
     matches: [
       { title: "Modular Sofa, boucle", merchant: "Nordhaus", price: "$1,290", score: 0.89, img: "assets/sofa-replacement.jpg" },
@@ -936,6 +975,7 @@ const DETECTIONS = [
   },
   {
     label: "Coffee table", x1: 0.37, y1: 0.69, x2: 0.87, y2: 0.9, confident: true,
+    mx: 0.66, my: 0.955,
     caption: "round coffee table, pale travertine top, clustered cylindrical legs",
     matches: [
       { title: "Organic Wood Table", merchant: "Cedarline", price: "$430", score: 0.86, img: "assets/coffee-table-replacement.jpg" },
@@ -944,6 +984,7 @@ const DETECTIONS = [
   },
   {
     label: "Rug", x1: 0.12, y1: 0.72, x2: 0.93, y2: 0.97, confident: false,
+    mx: 0.20, my: 0.93,
     caption: "large round rug, textured wool loop pile, warm greige",
     matches: [
       { title: "Wool Loop Rug, round", merchant: "Nordhaus", price: "$640", score: 0.44, img: "assets/room-02.png" },
@@ -958,28 +999,48 @@ let invDrawn = false;
 const escapeHtml = str => str.replace(/[&<>"']/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-/** Draw the boxes once, on first view of the panel. */
+/** Draw one marker and one (hidden) bracket region per detection, on first view.
+    `mark` is the control the user presses; `region` is the geometry that appears
+    only while that detection is selected. Both are stored on the detection so
+    selection never has to re-query the DOM. */
 function drawBoxes() {
   if (invDrawn) return;
   invDrawn = true;
   DETECTIONS.forEach((det, i) => {
-    const box = document.createElement("button");
-    box.className = "inv-box" + (det.y1 < 0.12 ? " low" : "");
-    box.style.left = (det.x1 * 100) + "%";
-    box.style.top = (det.y1 * 100) + "%";
-    box.style.width = ((det.x2 - det.x1) * 100) + "%";
-    box.style.height = ((det.y2 - det.y1) * 100) + "%";
-    box.setAttribute("aria-label", `Identify the ${det.label}`);
-    box.innerHTML = "<b></b>";
-    box.querySelector("b").textContent = det.label;
-    box.addEventListener("click", () => showMatches(i, box));
-    invFrame.appendChild(box);
+    const region = document.createElement("div");
+    region.className = "inv-region";
+    region.style.left = (det.x1 * 100) + "%";
+    region.style.top = (det.y1 * 100) + "%";
+    region.style.width = ((det.x2 - det.x1) * 100) + "%";
+    region.style.height = ((det.y2 - det.y1) * 100) + "%";
+    region.innerHTML = "<i></i><i></i><i></i><i></i>";
+    invFrame.appendChild(region);
+
+    // The marker sits at the region's centre, nudged by `mx`/`my` where two
+    // detections would otherwise land on the same spot.
+    const mark = document.createElement("button");
+    mark.className = "inv-mark";
+    mark.style.left = ((det.mx ?? (det.x1 + det.x2) / 2) * 100) + "%";
+    mark.style.top = ((det.my ?? (det.y1 + det.y2) / 2) * 100) + "%";
+    mark.textContent = det.label;
+    mark.setAttribute("aria-label", `Identify the ${det.label}`);
+    mark.addEventListener("click", () => showMatches(i));
+    invFrame.appendChild(mark);
+
+    det.mark = mark;
+    det.region = region;
   });
 }
 
-function showMatches(index, box) {
+function showMatches(index) {
   const det = DETECTIONS[index];
-  invFrame.querySelectorAll(".inv-box").forEach(b => b.classList.toggle("on", b === box));
+  // Exactly one region is outlined at a time - that is what keeps three
+  // overlapping detections legible.
+  DETECTIONS.forEach((d, i) => {
+    d.mark.classList.toggle("on", i === index);
+    d.region.classList.toggle("on", i === index);
+  });
+  invFrame.classList.remove("idle");   // the halo has done its job
 
   const rows = det.matches.map(m => `
     <div class="inv-match">
@@ -1012,9 +1073,10 @@ invResults.addEventListener("scroll", syncInvFade, { passive: true });
 
 function resetInvestigate() {
   drawBoxes();
-  invFrame.querySelectorAll(".inv-box").forEach(b => b.classList.remove("on"));
+  DETECTIONS.forEach(d => { d.mark.classList.remove("on"); d.region.classList.remove("on"); });
+  invFrame.classList.add("idle");
   invResults.innerHTML =
-    '<div class="inv-empty">Tap an outlined piece to identify it.</div>';
+    '<div class="inv-empty">Tap a marked piece to identify it.</div>';
   syncInvFade();
   // Replay the scan sweep on each visit; it reads as the detector running.
   invFrame.classList.remove("scanning");

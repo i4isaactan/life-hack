@@ -38,6 +38,7 @@ from .models import (
     CatalogItem,
     LayoutResult,
     PLACEMENT_ORDER,
+    ROLE_COUNTS,
     Role,
     RoomAnalysis,
     _BASIS_LABEL,
@@ -216,12 +217,21 @@ def build_bundles(
     bundles: list[Bundle] = []
     seen: set[frozenset[str]] = set()
 
-    # Roles that must not be suggested again. Seeded with the roles the design
-    # already fills: a room needs one sofa, so offering a second as an
-    # "addition" is wrong - that is a swap, which /api/swap already does. Then
-    # extended as suggestions are accepted, so a matching ROCKSJÖN armchair and
+    # Roles that must not be suggested again. A role is closed once the design
+    # holds as many as the role allows: offering a second sofa as an "addition"
+    # is wrong - that is a swap, which /api/swap already does - but a second
+    # armchair in a room with four seats' worth of floor is a real suggestion,
+    # so roles that scale stay open until their ceiling.
+    #
+    # Extended as suggestions are accepted, so a matching ROCKSJÖN armchair and
     # a generic style-matched armchair do not both appear.
-    suggested_roles: set[Role] = {i.role for i in selected}
+    role_counts: dict[Role, int] = defaultdict(int)
+    for item in selected:
+        role_counts[item.role] += 1
+    suggested_roles: set[Role] = {
+        role for role, n in role_counts.items()
+        if n >= ROLE_COUNTS.get(role, (0, 1))[1]
+    }
 
     def add(bundle: Bundle) -> None:
         key = frozenset(i.item_id for i in bundle.items)
@@ -260,7 +270,12 @@ def build_bundles(
     #    anchor piece. The sofa anchors when there is one - it is the piece a
     #    room is built around.
     anchor = next((i for i in selected if i.role is Role.SOFA), selected[0])
-    missing = [r for r in PLACEMENT_ORDER if not any(i.role is r for i in selected)]
+    # Roles with room left, not merely roles at zero: a design with one chair
+    # in a room that seats four still has a gap worth filling.
+    missing = [
+        r for r in PLACEMENT_ORDER
+        if role_counts[r] < ROLE_COUNTS.get(r, (0, 1))[1]
+    ]
     for role in missing:
         candidates = [
             c for c in in_stock
@@ -274,10 +289,19 @@ def build_bundles(
         # should not be the most expensive thing on the page.
         pick = min(candidates, key=lambda c: c.price_cents)
         shared = sorted(set(pick.style_tags) & set(anchor.style_tags))
+        label = role.value.replace("_", " ")
+        # A role at zero is a gap; a role below its ceiling is an addition.
+        # Telling someone their room "has no armchair" when it has one reads
+        # as a bug in the recommendation, not a suggestion.
+        opener = (
+            f"Your room has no {label}."
+            if role_counts[role] == 0
+            else f"There is floor for another {label}."
+        )
         add(_make(
             f"style-{anchor.id}-{pick.id}",
             BundleBasis.COMPLETES_ROOM,
-            f"Your room has no {role.value.replace('_', ' ')}. This one shares "
+            f"{opener} This one shares "
             f"{' and '.join(shared)} styling with your "
             f"{anchor.role.value.replace('_', ' ')} and sits in the same colour family.",
             [anchor, pick],

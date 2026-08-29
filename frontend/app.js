@@ -106,7 +106,11 @@ const state = {
   renderStale: false,// has the design changed since that visualization?
   lastRenderHTML: "",// the composed render markup, shared by layout and swap
   stage: "brief",    // current step in the four-stage sequence
-  advanced: false,   // has the first finished design pulled the user forward?
+  // Stages the sequence has already pulled the user forward to. Per-stage
+  // rather than a single latch: identify opens first and design opens after
+  // it, and BOTH should carry the user - but each only once, so a later
+  // re-render of the same stage cannot yank someone back to it.
+  autoAdvanced: {},
 };
 
 /* --- Chat transcript ------------------------------------------------------ */
@@ -513,10 +517,16 @@ async function loadShopMatches() {
 
   const body = $("shop-matches");
   $("panel-shop").hidden = false;
-  body.innerHTML = `<p class="muted">Matching what we found against the catalog…</p>`;
-  // Open the stage now rather than on completion: this runs straight off a
-  // photo upload, so without it the panel would fill behind a step the user
-  // still cannot click.
+  // Shaped like the result: one card per piece we expect to match. The
+  // detections are already known when this runs, so the count is the real
+  // one rather than a guess - the skeleton is the same length as the list
+  // that replaces it.
+  body.innerHTML = skeletonCards(
+    Math.min(Math.max(state.room?.detections?.length || 3, 1), 6),
+    "Finding furniture like yours in the catalog…"
+  );
+  // Open the stage now rather than on completion, so the skeleton is visible
+  // while it fills instead of the panel appearing only once it is done.
   syncStages();
 
   try {
@@ -944,11 +954,59 @@ async function doSwap(role, itemId) {
 /* --- Render --------------------------------------------------------------- */
 /* Two shapes come back depending on the backend: `room_render` (one composed
    image of the whole room) or a stream of per-item `render_update` frames. */
+/* --- Skeletons -----------------------------------------------------------
+   A placeholder shaped like the content that is coming. Used where the wait
+   is long enough that an empty panel reads as a broken one: the render is a
+   model call (a minute or more on Replicate), and catalog matching is an
+   embedding call per detected object.
+
+   The point is not decoration - it is that the panel keeps its layout, so
+   the arriving content does not shove the page around, and the user can see
+   WHAT is loading rather than just THAT something is. */
+
+/** Skeleton for the room visualization: one image block plus a caption line. */
+function skeletonRender(label = "Painting your design into your room…") {
+  return `
+    <div class="sk-label muted"><span class="spin"></span> ${esc(label)}</div>
+    <div class="sk sk-render"></div>
+    <div class="sk sk-line w60"></div>`;
+}
+
+/** Drop any skeleton still sitting in a container, leaving real content alone.
+
+    Needed because some streams APPEND their results (one frame per image),
+    so the first real item would otherwise land underneath the placeholder
+    and both would show at once. */
+function clearSkeleton(id) {
+  const el = $(id);
+  if (!el) return;
+  el.querySelectorAll(".sk, .sk-label, .sk-cards").forEach(n => n.remove());
+}
+
+/** Skeleton for a list of catalog matches: `n` thumbnail-plus-text rows. */
+function skeletonCards(n = 3, label = "") {
+  const card = `
+    <div class="sk-card">
+      <div class="sk sk-thumb"></div>
+      <div>
+        <div class="sk sk-line w60"></div>
+        <div class="sk sk-line w40"></div>
+      </div>
+    </div>`;
+  return `
+    ${label ? `<div class="sk-label muted"><span class="spin"></span> ${esc(label)}</div>` : ""}
+    <div class="sk-cards">${card.repeat(n)}</div>`;
+}
+
 async function doRender({ stay = false } = {}) {
   if (state.busy || !state.sessionId) return;
   setBusy(true);
   const status = setStatus("Rendering…");
-  $("renders").innerHTML = "";
+  // A skeleton rather than an empty panel: this call runs to a minute or more,
+  // and a blank stage for that long is indistinguishable from a failed one.
+  // Not on a re-render from Swap - `stay` keeps the previous image up, which
+  // is a better reference than a placeholder while judging a swap.
+  $("renders").innerHTML = stay ? $("renders").innerHTML : skeletonRender();
   $("panel-render").hidden = false;
   // Re-rendering from the Swap stage: keep the previous image up while the new
   // one generates, so the stage does not go blank for the length of the call.
@@ -976,6 +1034,10 @@ async function doRender({ stay = false } = {}) {
       },
       render_update: d => {
         const item = d.render || d;
+        // The first per-item result replaces the skeleton; later ones append
+        // to it. Without this the placeholder would sit above the real
+        // images for the rest of the run.
+        clearSkeleton("renders");
         $("renders").insertAdjacentHTML("beforeend", `
           <figure class="render-item">
             <img class="render-img" src="${esc(assetUrl(item.image_url))}" alt="${esc(item.name)}">
@@ -986,6 +1048,7 @@ async function doRender({ stay = false } = {}) {
       // design, so it reads as an instruction rather than a failure - and it
       // is reported once for the whole design instead of once per piece.
       render_failed: d => {
+        clearSkeleton("renders");
         if (d.reason === "no_photo") {
           $("renders").innerHTML =
             `<div class="skip">Add a room photo in your brief, then visualize again — `
@@ -1301,8 +1364,7 @@ async function openMandateDialog(onDone) {
       </select></label>
     <div class="risk ok"><span class="risk-ico">✓</span><span>Locked to
     <strong>${esc(defaults.category_label || "Furniture & Home Decor")}</strong>
-    merchants (MCC ${esc((defaults.allowed_mccs || []).join(", "))}). The agent
-    cannot spend this token anywhere else.</span></div>
+    merchants. The agent cannot spend this token anywhere else.</span></div>
     <div id="md-err"></div>`;
   $("pay-foot").innerHTML = `
     <button class="primary" id="md-go">${pay.credentials.length ? "Verify and grant mandate" : "Grant mandate"}</button>
@@ -1409,7 +1471,7 @@ function renderPreview() {
         <span>Pay with</span>
         <select data-merchant="${esc(c.merchant)}" class="pay-card-select">${cardOpts(c.payment_method_id)}</select>
         ${c.token_last4 ? `<span class="card-pill token">token ···· ${esc(c.token_last4)}</span>` : ""}
-        ${c.mcc ? `<span class="card-pill mcc" title="Merchant category code — what the mandate's category lock is checked against">MCC ${esc(c.mcc)}</span>` : ""}
+        ${c.category_label ? `<span class="card-pill mcc" title="Merchant category — what the mandate's category lock is checked against${c.mcc ? ` (MCC ${esc(c.mcc)})` : ""}">${esc(c.category_label)}</span>` : ""}
         <span>· arrives in ~${c.eta_days} days</span>
       </div>
     </div>`).join("");
@@ -1907,6 +1969,10 @@ function paintStageFoot() {
   updateActionAvailability();
 }
 
+/* Stages that carry the user to them when they first open. Checkout is
+   absent on purpose - see unlockStage. */
+const AUTO_ADVANCE = new Set(["identify", "design"]);
+
 /** Unlock a stage once its panel has content. */
 function unlockStage(name) {
   const step = stepEl(name);
@@ -1916,17 +1982,25 @@ function unlockStage(name) {
   if (empty) empty.hidden = true;
   paintStepper();
   paintStageFoot();
-  // The first stage to open pulls the user forward to it. Later unlocks do
-  // not - yanking someone off the stage they are reading is worse than
-  // letting them click a bubble that has just lit up.
+  // Identify and Design each pull the user forward the first time they open.
   //
-  // Whichever opens FIRST, which in practice is Identify: the room reading
-  // and its catalog matches land while the solver is still working. Skipping
-  // straight to Design would step over a stage that already has content in
-  // it, and the user would never see what we found in their photo unless
-  // they thought to click back.
-  if (!state.advanced) {
-    state.advanced = true;
+  // WHY BOTH, AND IN THAT ORDER. Identify opens first - the room reading and
+  // its catalog matches land while the solver is still working - so the user
+  // reads what we found in their photo during the wait instead of watching a
+  // spinner. Design opens when the layout lands, and carrying them there is
+  // the point of pressing Generate: the result should arrive, not sit behind
+  // a bubble they have to notice.
+  //
+  // WHY ONLY ONCE EACH. A stage re-renders on every swap and every follow-up
+  // turn. Advancing on each of those would drag the user off whatever they
+  // were reading, so the move is spent the first time and never repeats.
+  //
+  // CHECKOUT IS DELIBERATELY EXCLUDED. It unlocks during the same generate
+  // (the cart fills with the design), but nobody asked to pay - landing a
+  // user on a payment screen they did not navigate to is the one advance
+  // that would be presumptuous rather than helpful.
+  if (AUTO_ADVANCE.has(name) && !state.autoAdvanced[name]) {
+    state.autoAdvanced[name] = true;
     setStage(name);
   }
 }
@@ -2028,6 +2102,10 @@ $("room-photo-input").addEventListener("change", e => {
   $("panel-bundles").hidden = true;
   // Matches belong to the previous photo, so they go with it.
   state.shopResults = [];
+  // A new photo is a new run, so the sequence gets to carry the user forward
+  // again. Without this the second design would land silently behind a bubble
+  // the first run had already spent its advance on.
+  state.autoAdvanced = {};
   briefSummary();
   updateActionAvailability();
   // Identify deliberately does NOT run here. Picking a file is not a request

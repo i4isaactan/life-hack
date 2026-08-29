@@ -14,6 +14,7 @@ The core invariants, asserted by selftest():
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 from . import config
 from .models import (
@@ -39,6 +40,42 @@ EPS = 1e-6
 
 Rotation = int  # one of 0, 90, 180, 270
 
+
+class Arrangement(str, Enum):
+    """A named spatial intent the solver can lay a room out under.
+
+    The solver is deterministic, so asking it twice for the same wishlist
+    returns the same coordinates. That is the right behaviour for a single
+    answer and the wrong one for offering a choice: three renders of one
+    layout are three samples of the compositor's noise, not three designs.
+
+    Each arrangement changes only where pieces WANT to go - the anchors. Every
+    invariant downstream (in bounds, no overlap, door swings clear) is enforced
+    by the same code for all of them, so a variant can look different without
+    being able to be wrong.
+    """
+
+    # Sofa flat against the focal wall, everything squared to it. The safe,
+    # conventional reading of a room and the one most photos already show.
+    WALL_ANCHORED = "wall_anchored"
+    # Sofa pulled off the wall with the rug defining a conversation area.
+    # Opens circulation behind the seating; wants floor area to work.
+    FLOATING = "floating"
+    # Seating turned into a corner, chairs closing the fourth side. Frees the
+    # largest contiguous stretch of floor, which suits narrow rooms.
+    CORNER = "corner"
+
+
+# The arrangements the solver knows how to lay a room out under. Only the
+# first is used today: the product settled on a single design showing the whole
+# selected wishlist, rather than a set of alternatives. The others stay because
+# they cost nothing to keep and are how a "show me another way" feature would
+# be built - LayoutSolver takes the arrangement as a parameter already.
+ARRANGEMENTS: list[Arrangement] = [
+    Arrangement.WALL_ANCHORED,
+    Arrangement.FLOATING,
+    Arrangement.CORNER,
+]
 
 @dataclass(frozen=True)
 class Rect:
@@ -171,8 +208,13 @@ def blocked_zones(room: RoomAnalysis) -> list[Rect]:
 
 
 class LayoutSolver:
-    def __init__(self, room: RoomAnalysis) -> None:
+    def __init__(
+        self,
+        room: RoomAnalysis,
+        arrangement: Arrangement = Arrangement.WALL_ANCHORED,
+    ) -> None:
         self.room = room
+        self.arrangement = arrangement
         self.W = room.width_cm
         self.D = room.depth_cm
         self.margin = config.WALL_MARGIN_CM
@@ -216,62 +258,279 @@ class LayoutSolver:
 
         Encodes the interior-design intent: sofas sit against the focal wall,
         coffee tables centre on the sofa, chairs flank it, lamps take corners.
+        The active arrangement varies that intent; what it cannot vary is the
+        feasibility checking applied to every candidate it returns.
+
+        Fallbacks are appended rather than substituted, so an arrangement that
+        does not suit this room degrades to the conventional layout instead of
+        dropping the piece.
         """
         m = self.margin
-        focal = self.room.focal_wall
         cx = (self.W - w) / 2
         cy = (self.D - d) / 2
-
-        if role is Role.RUG:
-            # Rugs centre in the room and everything else lands on top.
-            return [(cx, cy)]
-
-        if role is Role.SOFA:
-            # The focal wall is the intent, but a long sofa may only fit along
-            # a different axis; try the alternatives before giving up on walls
-            # entirely, since a floating sofa is a much worse outcome.
-            walls = [focal, _opposite(focal)] + [
-                wl for wl in (Wall.NORTH, Wall.SOUTH, Wall.EAST, Wall.WEST)
-                if wl not in (focal, _opposite(focal))
-            ]
-            return [self._against(wl, w, d) for wl in walls]
-
         sofa = self._find(placed, Role.SOFA)
 
+        if role is Role.RUG:
+            return self._rug_anchors(w, d, cx, cy, sofa)
+        if role is Role.SOFA:
+            return self._sofa_anchors(w, d, cx, cy)
         if role is Role.COFFEE_TABLE:
-            if sofa:
-                # Directly in front of the sofa, offset into the room.
-                return [
-                    (sofa.rect.cx - w / 2, sofa.rect.y2 + config.CLEARANCE_LADDER_CM[0]),
-                    (sofa.rect.cx - w / 2, sofa.rect.y - d - config.CLEARANCE_LADDER_CM[0]),
-                    (sofa.rect.x2 + config.CLEARANCE_LADDER_CM[0], sofa.rect.cy - d / 2),
-                    (sofa.rect.x - w - config.CLEARANCE_LADDER_CM[0], sofa.rect.cy - d / 2),
-                ]
+            return self._table_anchors(w, d, cx, cy, sofa)
+        if role is Role.ACCENT_CHAIR:
+            return self._chair_anchors(w, d, cx, cy, placed, sofa)
+        if role is Role.FLOOR_LAMP:
+            return self._lamp_anchors(w, d, m, sofa, placed)
+        return [(cx, cy)]
+
+    def _rug_anchors(
+        self, w: float, d: float, cx: float, cy: float, sofa: _Placed | None
+    ) -> list[tuple[float, float]]:
+        """Rugs centre on the seating, falling back to the room's centre.
+
+        A rug centred in the room only lands under the furniture when the
+        furniture happens to be centred too - and a sofa on a wall never is.
+        That produces the layout this codebase's own prompt tries to describe
+        away: a rug in open floor with the seating beside it. Anchoring on the
+        sofa instead is what makes "front legs on the rug" true rather than
+        merely requested.
+
+        Under FLOATING the rug goes further and defines the whole island, so
+        it is centred on the seating group rather than tucked under its front
+        edge.
+        """
+        if sofa is None:
             return [(cx, cy)]
 
-        if role is Role.ACCENT_CHAIR:
-            if sofa:
-                gap = config.CLEARANCE_LADDER_CM[-1]
-                return [
+        # Reach forward from the sofa's front edge, into the room. The rug
+        # wants to cover the sofa's front legs and run under the coffee table,
+        # so it starts a little way under the sofa rather than at its face.
+        under = min(d * 0.3, sofa.rect.d * 0.5)
+        toward_camera = sofa.rect.cy <= self.D / 2
+        if self.arrangement is Arrangement.FLOATING:
+            # Centred on the seating island: the rug is the thing that makes
+            # a floated group read as deliberate.
+            y = sofa.rect.cy - d / 2 + (d * 0.2 if toward_camera else -d * 0.2)
+        else:
+            y = sofa.rect.y2 - under if toward_camera else sofa.rect.y - d + under
+
+        return [(sofa.rect.cx - w / 2, y), (cx, cy)]
+
+    def _sofa_anchors(
+        self, w: float, d: float, cx: float, cy: float
+    ) -> list[tuple[float, float]]:
+        """Where the sofa wants to sit - the decision the room is built around."""
+        focal = self._focal_wall()
+        # The focal wall is the intent, but a long sofa may only fit along a
+        # different axis; try the alternatives before giving up on walls
+        # entirely, since a floating sofa is a much worse outcome.
+        walls = [focal, _opposite(focal)] + [
+            wl for wl in (Wall.NORTH, Wall.SOUTH, Wall.EAST, Wall.WEST)
+            if wl not in (focal, _opposite(focal))
+        ]
+        wall_anchors = [self._against(wl, w, d) for wl in walls]
+
+        if self.arrangement is Arrangement.FLOATING:
+            # Off the wall far enough to read as floating.
+            #
+            # A fixed 40cm walkway is a real walkway but not a visible design
+            # choice: the composing model is told positions in thirds of the
+            # room, so a sofa 40cm off the wall is described with the same
+            # words as one against it, and the "alternative" renders as a copy
+            # of the first. Floating a fifth of the room's depth actually
+            # crosses that boundary, which is what makes it a different layout
+            # rather than a different number.
+            #
+            # Still floored at a walkway's width, so a small room floats by a
+            # usable amount or not at all.
+            gap = max(config.CLEARANCE_LADDER_CM[0], self.D * 0.2)
+            floated = self._float_off(self._focal_wall(), w, d, gap)
+            if floated is not None:
+                return [floated] + wall_anchors
+            return wall_anchors
+
+        if self.arrangement is Arrangement.CORNER:
+            # Into a corner along the focal wall, freeing the opposite half of
+            # the room as one contiguous stretch of floor.
+            return self._corner_anchors(w, d) + wall_anchors
+
+        return wall_anchors
+
+    def _float_off(
+        self, wall: Wall, w: float, d: float, gap: float
+    ) -> tuple[float, float] | None:
+        """The wall-anchored position pulled `gap` into the room, or None.
+
+        None when the room cannot spare the walkway: floating a sofa in a room
+        with no room to walk behind it is worse than leaving it on the wall.
+        """
+        x, y = self._against(wall, w, d)
+        if wall in (Wall.NORTH, Wall.SOUTH):
+            if self.D - 2 * self.margin < d + gap + config.CLEARANCE_LADDER_CM[0]:
+                return None
+            return (x, y + gap) if wall is Wall.NORTH else (x, y - gap)
+        if self.W - 2 * self.margin < w + gap + config.CLEARANCE_LADDER_CM[0]:
+            return None
+        return (x + gap, y) if wall is Wall.WEST else (x - gap, y)
+
+    def _corner_anchors(self, w: float, d: float) -> list[tuple[float, float]]:
+        """The two corners along the focal wall, nearest corner first."""
+        m = self.margin
+        focal = self._focal_wall()
+        if focal in (Wall.NORTH, Wall.SOUTH):
+            y = m if focal is Wall.NORTH else self.D - m - d
+            return [(m, y), (self.W - m - w, y)]
+        x = m if focal is Wall.WEST else self.W - m - w
+        return [(x, m), (x, self.D - m - d)]
+
+    def _table_anchors(
+        self, w: float, d: float, cx: float, cy: float, sofa: _Placed | None
+    ) -> list[tuple[float, float]]:
+        """Directly in front of the sofa, offset into the room."""
+        if sofa is None:
+            return [(cx, cy)]
+        gap = config.CLEARANCE_LADDER_CM[0]
+        # Toward the room's centre first: in front of the sofa means between it
+        # and the rest of the room, which is not always +y.
+        primary = (
+            (sofa.rect.cx - w / 2, sofa.rect.y2 + gap)
+            if sofa.rect.cy <= self.D / 2
+            else (sofa.rect.cx - w / 2, sofa.rect.y - d - gap)
+        )
+        return [
+            primary,
+            (sofa.rect.cx - w / 2, sofa.rect.y2 + gap),
+            (sofa.rect.cx - w / 2, sofa.rect.y - d - gap),
+            (sofa.rect.x2 + gap, sofa.rect.cy - d / 2),
+            (sofa.rect.x - w - gap, sofa.rect.cy - d / 2),
+        ]
+
+    def _chair_anchors(
+        self,
+        w: float,
+        d: float,
+        cx: float,
+        cy: float,
+        placed: list[_Placed],
+        sofa: _Placed | None,
+    ) -> list[tuple[float, float]]:
+        """Chairs flank the sofa, alternating sides as more are added.
+
+        With several chairs in the design, every one taking the same anchor
+        list would stack them all on the sofa's right and let the ring search
+        scatter the overflow. Counting the chairs already placed and flipping
+        the preferred side distributes them the way a room actually seats
+        people - and under CORNER they close the fourth side of the group.
+        """
+        if sofa is None:
+            return [(cx, cy)]
+
+        gap = config.CLEARANCE_LADDER_CM[-1]
+        n = sum(1 for p in placed if p.item.role is Role.ACCENT_CHAIR)
+
+        right = (sofa.rect.x2 + gap, sofa.rect.y)
+        left = (sofa.rect.x - w - gap, sofa.rect.y)
+
+        # Facing the sofa across the coffee table: the second pair of seats in
+        # a conversation group, and the only anchor that reads as a circle.
+        #
+        # Measured from the coffee table when there is one, not from the sofa.
+        # Deriving it from the sofa meant guessing at the gap, and the guess
+        # was far too generous - a chair 194cm from a sofa is not part of the
+        # conversation, it is against the opposite wall, which is exactly what
+        # it rendered as. The table is the centre of the group, so a chair on
+        # its far side is at a believable distance by construction.
+        table = self._find(placed, Role.COFFEE_TABLE)
+        anchor = table.rect if table is not None else sofa.rect
+        toward_camera = sofa.rect.cy <= self.D / 2
+        facing = (
+            (anchor.cx - w / 2, anchor.y2 + gap)
+            if toward_camera
+            else (anchor.cx - w / 2, anchor.y - d - gap)
+        )
+
+        sides = [left, right] if n % 2 else [right, left]
+        if self.arrangement is Arrangement.CORNER:
+            # The group is already against a corner, so the open side is where
+            # a chair belongs first.
+            return [facing] + sides + [(cx, cy)]
+        if self.arrangement is Arrangement.FLOATING:
+            # Two flanking, then across - a floated sofa has space on the far
+            # side that a wall-anchored one does not.
+            return sides + [facing, (cx, cy)]
+        return sides + [facing, (cx, cy)]
+
+    def _lamp_anchors(
+        self,
+        w: float,
+        d: float,
+        m: float,
+        sofa: _Placed | None,
+        placed: list[_Placed],
+    ) -> list[tuple[float, float]]:
+        """Beside the seating, then the far corners - and never two in one spot.
+
+        A lamp belongs at the end of a sofa or over a reading chair, which is a
+        small number of real positions. The previous version offered the same
+        list to every lamp, so a second one took the position next to the first
+        and the pair rendered as a single confused object beside the sofa.
+
+        Later lamps therefore start further down the list: the corner opposite
+        the seating, which is the only other place a floor lamp reads as
+        deliberate. Anything beyond that is decoration the room did not ask for.
+        """
+        n = sum(1 for p in placed if p.item.role is Role.FLOOR_LAMP)
+
+        # Corners ordered away from the sofa, so a second lamp lights the part
+        # of the room the first one does not.
+        corners = [
+            (m, m),
+            (self.W - m - w, m),
+            (m, self.D - m - d),
+            (self.W - m - w, self.D - m - d),
+        ]
+        if sofa is not None:
+            corners.sort(
+                key=lambda c: -((c[0] - sofa.rect.cx) ** 2 + (c[1] - sofa.rect.cy) ** 2)
+            )
+            if n == 0:
+                # The first lamp stands at the sofa's end, clear of its arm
+                # rather than jammed against it.
+                gap = config.CLEARANCE_LADDER_CM[0]
+                beside = [
                     (sofa.rect.x2 + gap, sofa.rect.y),
                     (sofa.rect.x - w - gap, sofa.rect.y),
-                    (cx, cy),
                 ]
-            return [(cx, cy)]
+                return beside + corners
+        return corners
 
-        if role is Role.FLOOR_LAMP:
-            # Corners, then beside the sofa.
-            corners = [
-                (m, m),
-                (self.W - m - w, m),
-                (m, self.D - m - d),
-                (self.W - m - w, self.D - m - d),
-            ]
-            if sofa:
-                corners.insert(0, (sofa.rect.x2 + 5, sofa.rect.y))
-            return corners
+    def _focal_wall(self) -> Wall:
+        """The wall the seating backs onto, corrected for what the camera sees.
 
-        return [(cx, cy)]
+        The room's compass is defined by the camera: south is the wall behind
+        it, north the wall it faces. So the analysis can name a wall that is
+        legal geometry but a bad picture, and two answers have to be corrected
+        rather than trusted:
+
+        SOUTH is the camera's own wall. A sofa placed there sits between the
+        lens and the room, so it either fills the frame or is not in it.
+
+        EAST and WEST are seen edge-on. A sofa against a side wall runs away
+        from the viewer and off the edge of the picture - which is exactly what
+        it looked like - so they are only worth keeping when the room is deep
+        enough that a side wall is the longer one, and the sofa genuinely has
+        more room along it.
+
+        Everything else passes through untouched. This corrects the framing,
+        not the taste.
+        """
+        focal = self.room.focal_wall
+        if focal is Wall.SOUTH:
+            return Wall.NORTH
+        if focal in (Wall.EAST, Wall.WEST) and self.D <= self.W:
+            # A wide room seen from the south: the side walls are the short
+            # ones and face away from the camera. The far wall is better.
+            return Wall.NORTH
+        return focal
 
     def _against(self, wall: Wall, w: float, d: float) -> tuple[float, float]:
         """Top-left corner for a piece flush against the given wall, centred."""
@@ -348,12 +607,34 @@ class LayoutSolver:
 
     # --- main loop --------------------------------------------------------
 
+    def _order_index(self, role: Role) -> float:
+        """Placement priority for a role under the active arrangement.
+
+        PLACEMENT_ORDER puts the rug first, which suits a solver that centres
+        it in the room: claim the floor, then lay everything over it. But a rug
+        belongs under the SEATING, not under the room's midpoint, and it cannot
+        be positioned from a sofa that has not been placed yet.
+
+        So the rug moves half a step behind the sofa - late enough to anchor on
+        it, early enough to stay ahead of every piece that wants to sit on it.
+        Nothing downstream is disturbed by the move because a rug does not
+        collide (NON_COLLIDING_ROLES): it never takes space another piece
+        wanted, whenever it is placed.
+        """
+        base = (
+            PLACEMENT_ORDER.index(role)
+            if role in PLACEMENT_ORDER
+            else len(PLACEMENT_ORDER)
+        )
+        if role is Role.RUG:
+            return PLACEMENT_ORDER.index(Role.SOFA) + 0.5
+        return float(base)
+
+
     def solve(self, items: list[CatalogItem]) -> LayoutResult:
         ordered = sorted(
             items,
-            key=lambda i: PLACEMENT_ORDER.index(i.role)
-            if i.role in PLACEMENT_ORDER
-            else len(PLACEMENT_ORDER),
+            key=lambda i: self._order_index(i.role),
         )
 
         placed: list[_Placed] = []

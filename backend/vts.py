@@ -112,6 +112,44 @@ HOME_CATEGORY_MCCS: frozenset[str] = frozenset(
     {MCC_FURNITURE, MCC_FLOOR_COVERINGS, MCC_HOME_FURNISHING, MCC_HOME_SUPPLY, MCC_LIGHTING}
 )
 
+# What each code MEANS, in the words a shopper would use. The code is the
+# thing the network checks and the thing this project reasons about, but it is
+# jargon: "5712" tells a cardholder nothing, while "Furniture" tells them
+# exactly what their agent is allowed to buy. Every customer-facing surface
+# shows the label; the raw code stays in the API payload and the audit trail,
+# where precision matters more than readability.
+MCC_LABELS: dict[str, str] = {
+    MCC_FURNITURE: "Furniture",
+    MCC_FLOOR_COVERINGS: "Rugs & Flooring",
+    MCC_HOME_FURNISHING: "Home Furnishing",
+    MCC_HOME_SUPPLY: "Home Supply",
+    MCC_LIGHTING: "Lighting",
+}
+
+
+def label_for_mcc(mcc: str) -> str:
+    """A shopper-readable category name for a code.
+
+    Falls back to naming the code rather than inventing a category: a merchant
+    whose MCC we do not recognise is exactly the case the category lock
+    refuses, and dressing it up as something familiar would misdescribe the
+    reason for a refusal.
+    """
+    return MCC_LABELS.get(mcc, f"Uncategorised ({mcc})" if mcc else "Uncategorised")
+
+
+def labels_for_mccs(mccs) -> str:
+    """Human-readable list of categories, for the mandate summary."""
+    seen = [MCC_LABELS[m] for m in sorted(mccs) if m in MCC_LABELS]
+    unknown = [m for m in sorted(mccs) if m not in MCC_LABELS]
+    seen += [label_for_mcc(m) for m in unknown]
+    if not seen:
+        return "Uncategorised"
+    if len(seen) == 1:
+        return seen[0]
+    return ", ".join(seen[:-1]) + " and " + seen[-1]
+
+
 # Which MCC each merchant in the catalog transacts under. A merchant absent
 # from this map has no known category, and an unknown category fails the
 # category lock rather than passing it - the safe direction for a check whose
@@ -200,6 +238,49 @@ class NetworkToken:
     # FIDO gives the highest band. Real field, real semantics.
     assurance_level: int = 0
     assurance_method: str = "none"
+
+
+# --- Live VDP passthrough ---------------------------------------------------
+#
+# When VISA_LIVE is on and credentials are present, provisioning also calls
+# the real Visa Token Service and records what came back. The MANDATE stays
+# local either way: agent mandates with category locks and cumulative caps are
+# this application's own policy layer, not something VTS enforces, so a live
+# token does not mean the guardrails move off this server.
+#
+# Failure here degrades to simulation rather than blocking checkout. VDP
+# returns 403 for unentitled products, and provisioning entitlements in
+# particular usually need a BIN sponsor - so a deployment without them should
+# still work, with the response recording honestly that it did not go live.
+
+
+def _live_provision(funding_method_id: str) -> dict | None:
+    """Ask the real VTS to enroll a card. Returns None if live mode is off.
+
+    Never raises into the caller: an integration that is not entitled yet must
+    not take the checkout down with it.
+    """
+    from . import config
+
+    if not config.VISA_LIVE:
+        return None
+    try:
+        from . import visa_client
+
+        # Sandbox test PAN. A real PAN never appears in this codebase, and the
+        # whole point of tokenization is that the agent never sees one.
+        return visa_client.call(
+            "POST",
+            "/vts/provisionedTokens",
+            body={
+                "clientAppID": "RoomHack",
+                "panSource": "ONFILE",
+                "presentationType": "AI_AGENT",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - degrade, never block a checkout
+        log.warning("live VTS provisioning unavailable, using simulation: %s", exc)
+        return None
 
 
 TOKENS: dict[str, NetworkToken] = {}
@@ -364,6 +445,16 @@ def provision_token(
         assurance_level=0x20 if assurance_method.startswith("fido2") else 0x10,
         assurance_method=assurance_method,
     )
+    # Try the real token service. On success the token records that it came
+    # from VDP; on failure or when live mode is off, the simulated token stands
+    # and `assurance_method` still reports honestly what backed it.
+    live = _live_provision(funding_method_id)
+    if live:
+        token.token_id = str(live.get("vProvisionedTokenID") or token.token_id)
+        token.token_last4 = str(live.get("tokenLast4") or token.token_last4)
+        token.assurance_method = f"{assurance_method}+vts_live"
+        log.info("provisioned LIVE VTS token %s", token.token_id)
+
     TOKENS[token.token_id] = token
     credential = sign_mandate(mandate, token.token_id)
     log.info(

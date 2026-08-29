@@ -270,7 +270,22 @@
   .drop-prompt .mark { font-size:28px; opacity:.45; display:block; margin-bottom:var(--s2); }
   .drop-prompt strong { display:block; font-family:var(--sans); font-size:14px; font-weight:650; }
   .drop-prompt span { font-size:12.5px; color:var(--muted); }
-  #photo-preview { display:block; width:100%; height:230px; object-fit:cover; }
+  /* The room photo is shown whole, at its own aspect ratio.
+     It is the input the entire design is derived from, so it has to be
+     reviewable: `cover` on a fixed band cropped a portrait phone photo to a
+     horizontal slice through the middle of the room. But simply switching to
+     `contain` inside that same band is worse, not better - it shrinks the
+     photo into a narrow strip between two grey bars.
+
+     So the box follows the photo instead of the photo fitting the box: the
+     element sizes to its own content, capped so a very tall portrait shot
+     cannot push the form below the fold. `height:auto` is what lets a
+     landscape photo stay short and a portrait one stay tall. */
+  #photo-preview {
+    display:block; width:100%; height:auto;
+    max-height:min(52vh, 420px); object-fit:contain;
+    background:var(--soft);
+  }
 
   .field-label { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:var(--s4) 0 var(--s1); }
   .field-label:first-child { margin-top:0; }
@@ -344,7 +359,17 @@
 
   .cart-line { display:grid; grid-template-columns:46px 1fr auto; gap:var(--s3); align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
   .cart-line:last-child { border-bottom:0; }
-  .cart-line img { width:46px; height:46px; object-fit:cover; border-radius:8px; background:var(--soft); }
+  /* Product shots are `contain`, not `cover`, everywhere they appear.
+     A catalog photo is a picture OF a thing, framed to show the whole thing -
+     cropping it to fill a square cuts the arms off an armchair and the shade
+     off a lamp, which is exactly the information someone is scanning these
+     thumbnails for. Letterboxing against the panel tint wastes a little space
+     and keeps the silhouette, which is the better trade for a shopping list.
+     The padding stops a pale product from bleeding into the plate behind it. */
+  .cart-line img {
+    width:46px; height:46px; object-fit:contain; border-radius:8px;
+    background:var(--soft); padding:3px;
+  }
   .cart-line-body { display:grid; } .cart-line-body span { font-size:12px; } .price { font-weight:700; }
 
   .alt-group { margin-bottom:var(--s5); }
@@ -355,7 +380,10 @@
     border-radius:var(--r-md); padding:var(--s3); text-align:left; display:grid; gap:2px; font-weight:400;
   }
   .alt:hover:not(:disabled) { border-color:var(--accent); background:var(--panel); box-shadow:var(--shadow-md); transform:translateY(-1px); }
-  .alt img { width:100%; height:88px; object-fit:cover; border-radius:var(--r-sm); background:var(--soft); margin-bottom:var(--s1); }
+  .alt img {
+    width:100%; height:88px; object-fit:contain; border-radius:var(--r-sm);
+    background:var(--soft); padding:5px; margin-bottom:var(--s1);
+  }
   .alt-name { font-weight:650; font-size:13px; }
   .alt .muted { font-size:11px; }
   .alt .delta { font-size:12px; font-weight:650; }
@@ -368,7 +396,10 @@
   .bundle-reason { font-size:12px; color:var(--muted); margin:0 0 var(--s2); }
   .bundle-items { display:flex; gap:var(--s2); flex-wrap:wrap; margin-bottom:var(--s2); }
   .bundle-piece { display:flex; align-items:center; gap:var(--s2); font-size:12px; border:1px solid var(--line); border-radius:var(--r-sm); padding:4px 8px; }
-  .bundle-piece img { width:34px; height:34px; object-fit:cover; border-radius:4px; background:var(--soft); }
+  .bundle-piece img {
+    width:34px; height:34px; object-fit:contain; border-radius:4px;
+    background:var(--soft); padding:2px;
+  }
   .bundle-piece.owned { opacity:.6; }
   .bundle-flags { display:flex; gap:var(--s2); flex-wrap:wrap; }
 
@@ -421,6 +452,41 @@
 
   .render-img { width:100%; border-radius:var(--r-md); display:block; }
   .render-item { margin:0 0 var(--s4); }
+
+  /* --- Skeletons ----------------------------------------------------------
+     Placeholders shaped like the content that is coming, so a slow panel
+     shows its layout instead of emptiness and nothing jumps when the real
+     thing lands. One sweeping highlight rather than a pulse: a pulse reads
+     as "broken", a sweep reads as "working".
+
+     `prefers-reduced-motion` drops the sweep to a flat tint - the shape still
+     communicates what is loading, without the movement. */
+  .sk { position:relative; overflow:hidden; background:var(--soft); border-radius:var(--r-sm); }
+  .sk::after {
+    content:""; position:absolute; inset:0; transform:translateX(-100%);
+    background:linear-gradient(90deg, transparent, #ffffffb0, transparent);
+    animation:sk-sweep 1.35s ease-in-out infinite;
+  }
+  @keyframes sk-sweep { to { transform:translateX(100%); } }
+  @media (prefers-reduced-motion:reduce) {
+    .sk::after { animation:none; background:#ffffff55; transform:none; }
+  }
+
+  /* The render placeholder holds the image's own footprint. 4:3 matches the
+     room photos the renderer returns, so the panel does not resize when the
+     picture arrives. */
+  .sk-render { width:100%; aspect-ratio:4/3; border-radius:var(--r-md); }
+  .sk-line { height:11px; margin-top:var(--s2); }
+  .sk-line.w60 { width:60%; }
+  .sk-line.w40 { width:40%; }
+
+  /* One match card: thumbnail plus two text lines, mirroring .shop-card. */
+  .sk-cards { display:grid; gap:var(--s3); }
+  .sk-card { display:grid; grid-template-columns:64px 1fr; gap:var(--s3); align-items:center; }
+  .sk-thumb { width:64px; height:64px; border-radius:var(--r-sm); }
+
+  /* A caption above a skeleton, so the wait is named rather than mysterious. */
+  .sk-label { display:flex; align-items:center; gap:8px; margin-bottom:var(--s2); }
   .ask { padding:var(--s3); background:var(--soft); border-radius:var(--r-sm); margin-bottom:var(--s2); }
   .ask p { margin:0 0 var(--s1); font-size:13px; }
 

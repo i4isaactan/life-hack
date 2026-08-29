@@ -11,6 +11,10 @@ backend/    FastAPI + LangGraph API, the deliverable
 frontend/   two pages over that API — a landing page and the design workspace
 ```
 
+**[PAYMENTS.md](PAYMENTS.md)** — how the agent is authorized to spend, how a
+purchase is split across merchants, and how merchants are paid on Visa Direct.
+Read that one if you only read one.
+
 ---
 
 ## Quick start
@@ -801,6 +805,255 @@ bound to that leg's amount — so a cryptogram captured from one merchant cannot
 be replayed against another on the same order. Only the *approved* portion is
 recorded against the cumulative cap; counting a decline would be wrong twice
 over.
+
+### Onboarding third-party merchants
+
+The catalog stores `merchant` as a plain string. `backend/merchants.py` turns
+that into an account that can authenticate, publish products, and be paid.
+
+```
+POST /api/merchant/onboard        register; returns the API secret ONCE
+POST /api/merchant/catalog        publish products      (signed)
+GET  /api/merchant/me             account details       (signed)
+GET  /api/merchant/balance        owed, and whether it can settle (signed)
+GET  /api/merchant/payouts        per-order breakdown   (signed)
+POST /api/merchant/{id}/kyc       platform-side KYC outcome
+```
+
+#### What a merchant actually does
+
+Three steps, and **no Visa relationship is required**:
+
+1. **Register** — `POST /api/merchant/onboard`. Returns an API key and secret
+   (the secret is shown once). No Visa account, no PSP, no integration work.
+2. **Upload a catalogue** — `POST /api/merchant/catalog/upload` with a CSV or
+   JSON export. Whatever their system already produces; see below.
+3. **Keep selling as they do today.** Their existing checkout URL is what a
+   shopper is sent to. We never touch their payment flow.
+
+They need **no Visa connection** because Visa sits on *our* side of the
+transaction, between the shopper and their card — not between us and the
+merchant. A merchant here is a catalogue plus a checkout link.
+
+#### Catalogue ingestion
+
+Merchants do not share a schema. One calls it `sku`, the next `product_id`,
+the third `item_code`; one prices in dollars, another in cents; one measures in
+inches. `ingest/mock_uploads/` holds five deliberately inconsistent feeds, and
+all five normalize:
+
+```
+01_small_studio.csv        30 rows -> 28 ok, 2 rejected
+03_medium_retailer.csv     60 rows -> 59 ok, 1 rejected   (inches -> cm)
+04_medium_design_house.csv 60 rows -> 60 ok               ("210 x 90 x 80")
+02_small_marketplace.json  30 rows -> 28 ok, 2 rejected   (nested JSON)
+```
+
+**Upload is two-phase.** The default `publish=false` normalizes, validates and
+returns exactly what *would* be published plus every problem found — changing
+nothing. The merchant fixes the reported rows and re-uploads with
+`publish=true`. That matters more here than in most upload flows: these become
+products a shopper can be charged for, and silently publishing 28 of 30 rows
+would leave a merchant believing their catalogue was live when part of it was
+not.
+
+The rule ingestion follows: **normalize aggressively, never guess a value that
+affects what a shopper pays or receives.** Unit conversion and field aliasing
+are safe. A missing price or dimension is reported, not defaulted — an invented
+dimension puts furniture in a room it does not fit, and an invented price is a
+mispriced sale someone has to honour. Money units are read from the *field
+name* (`amount` is cents, `price` is dollars) rather than inferred from
+magnitude, because a S$2,000 sofa and a 2000-cent cushion are equally
+plausible and guessing wrong is a 100x error.
+
+Validation rejects, with a fixable message per row: missing ID, title, price or
+dimensions; non-HTTPS checkout URLs; internal or dotless hosts; duplicate SKUs;
+and categories that map to no placeable role.
+
+**Requests are HMAC-signed, not bearer-authenticated.** A leaked bearer token
+is directly replayable; a signature covers method, path, timestamp, nonce and
+raw body, so a captured request cannot be redirected to another endpoint or
+replayed at all. Signing:
+
+```
+signature = HMAC-SHA256(secret, "METHOD\npath\ntimestamp\nnonce\nbody")
+```
+
+sent as `x-merchant-key`, `x-merchant-signature`, `x-merchant-timestamp`,
+`x-merchant-nonce`. Timestamps outside a 300s window are refused, and each
+nonce is single-use within it. The body is signed as **raw bytes** — re-
+serializing parsed JSON changes whitespace and key order and breaks every
+signature.
+
+Two things the merchant does not control, deliberately:
+
+- **Its own name on a product.** The merchant is taken from the authenticated
+  credential, never the payload, so nobody can publish under another's name.
+- **Its MCC.** The platform assigns it, because it drives the agent mandate's
+  category lock — a merchant that could declare its own category could opt
+  itself into any agent's scope.
+
+#### Paying merchants: Visa Direct
+
+A merchant needs **no payment processor** to be paid. They nominate an account,
+and their share of each order is pushed to it with Visa Direct (an Original
+Credit Transaction) — the one money-movement product this project is entitled
+to.
+
+```
+POST /api/merchant/{id}/settle    pay pending balance  ({"dry_run": true} to preview)
+GET  /api/payouts/status          whether live payouts are configured
+```
+
+Settlement refuses before it moves anything if the merchant cannot legally be
+paid, and KYC is re-checked at payout rather than trusted from order time:
+
+```
+settle before KYC -> 403 cannot pay out: account is pending, KYC is unverified
+dry run           -> would_pay_cents 134203, records 1
+settle (no creds) -> simulated: true, nothing marked paid
+```
+
+**This rail is live against Visa's sandbox.** A real encrypted payout, with a
+real approval code back from Visa:
+
+```
+5. LIVE VISA DIRECT PAYOUT
+   paid_cents: 134203 | records: 1
+   visa: {"actionCode": "00", "approvalCode": "21324K",
+          "transactionIdentifier": 77076001832834, "approved": true}
+6. ledger: paid | txn: 77076001832834
+```
+
+**Message Level Encryption is mandatory**, and the two certificates are easy to
+confuse — getting them backwards produces a payload Visa cannot read, and the
+rejection never mentions encryption:
+
+| Certificate | Role |
+|---|---|
+| **Server encryption cert** (Visa's) | **Encrypts** our requests |
+| **Client private key** (ours, with the Key-ID) | **Decrypts** Visa's responses |
+
+The Key-ID travels both as the JWE `kid` **and** as a `keyId` HTTP header;
+omitting the header fails exactly like a missing credential. Visa Direct uses
+**Two-Way SSL + Basic auth, not x-pay-token** — the reverse costs hours.
+
+Four payload details the sandbox rejects if wrong, each with an error naming
+nothing useful:
+
+- `transactionIdentifier` — numeric only, ≤15 digits. Order ids like
+  `SIM-20617CF3` are refused; the order id goes in `senderReference`, which
+  accepts text and keeps the payout traceable.
+- `retrievalReferenceNumber` — **not** 12 arbitrary digits: `yddd` + `hh` +
+  6 free digits, where `y` is the last digit of the year.
+- **HTTP 200 is not an approval.** The outcome is `actionCode` (`00` approved);
+  anything else is a decline. `settle` refuses to mark records paid on a
+  decline, so a frequency-limited card leaves the ledger `pending_settlement`.
+- Error bodies are **also MLE-encrypted**, so they are decrypted before being
+  raised — otherwise every failure is an opaque blob.
+
+**Payouts are idempotent.** Visa deduplicates on trace numbers, so those are
+derived from an idempotency key rather than generated randomly — otherwise a
+retry after a lost response is indistinguishable from a second payment, and the
+merchant is paid twice. The attempt is recorded before the request leaves, and
+an attempt that returned no outcome is refused rather than retried blindly:
+
+```
+settlement_unresolved: a previous payout attempt did not return an outcome and
+may or may not have been paid. Reconcile transaction 714886776510893 with Visa
+before retrying.
+```
+
+Full detail in [PAYMENTS.md](PAYMENTS.md#idempotent-payouts).
+
+**What this does and does not change.** Money still lands with the platform
+first and is pushed out afterwards, so the operator is still merchant of record
+with the KYC and licensing that implies. What it removes is the requirement
+that every *merchant* hold an acquirer relationship — they need only an account
+that can receive a push. A real simplification for the merchant; none at all
+for the platform.
+
+Without live credentials, `settle` returns `simulated: true`, lists exactly what
+is missing, and leaves every record `pending_settlement`. It never marks a
+payout paid that did not happen.
+
+#### Where this stops, and why
+
+Accepting other people's merchants and settling money to them makes an operator
+a **payment facilitator** — a regulated activity requiring KYC/AML on every
+merchant, an acquirer or PayFac licence, chargeback liability, and PCI scope.
+None of that is code, and none of it is here.
+
+So the technical half is complete and the regulatory boundary is marked rather
+than faked:
+
+| Real | Not real |
+|---|---|
+| Accounts, credentials, HMAC signing, replay protection | No funds move to any merchant |
+| Catalog ingestion into the live vector index | KYC fields are collected, never verified |
+| Per-merchant order splits and commission | `status` is always `pending_settlement` |
+| A payout ledger that reconciles | Settlement needs an acquirer relationship |
+
+A merchant may **sell while PENDING** — that is what makes onboarding usable —
+but `can_settle` stays false until KYC is verified, and every accrual against an
+unsettleable account is logged as a warning.
+
+### Connecting the real Visa sandbox
+
+Everything above runs fully simulated by default. To point the token layer at
+Visa's actual sandbox, add products to a project on
+[developer.visa.com](https://developer.visa.com) — **Visa Token Service**,
+**Click to Pay**, **Visa Direct** — then supply credentials.
+
+VDP uses **mutual TLS**: you and Visa each prove identity with certificates.
+Four pieces, and all four are required:
+
+| Piece | Where it comes from |
+|---|---|
+| Private key | Generated by you (or by VDP at project creation) |
+| **Client certificate** | **VDP issues it after you submit a CSR** |
+| CA bundle | VDP download — root, plus the intermediate for some endpoints |
+| User ID + Password | Project dashboard — HTTP Basic, checked *in addition to* mTLS |
+
+The client certificate is the step people get stuck on: it does not exist
+until a CSR is submitted, so there is nothing to download before that. Generate
+one against your existing key:
+
+```bash
+openssl req -new -key secrets/visa_private_key.pem -out secrets/visa_request.csr \
+  -subj "/C=SG/ST=Singapore/L=Singapore/O=RoomHack/OU=Engineering/CN=roomhack"
+```
+
+Paste it into VDP, save the signed certificate to `secrets/visa_cert.pem`, copy
+`.env.example` to `.env` and fill it in, then verify:
+
+```bash
+python -m backend.visa_check
+```
+
+That exercises the whole path — certificate, key, CA chain, Basic auth — and
+each failure mode reports differently. Worth running before debugging anything
+else, since a mismatched cert/key pair fails the TLS handshake with an error
+naming neither file.
+
+**`secrets/` and `*.pem` are gitignored.** A client certificate is a credential
+in exactly the way a password is.
+
+Two things to expect:
+
+- **403 is usually an entitlement wall, not a bug.** VTS *provisioning* normally
+  requires a BIN sponsor or partner agreement. `visa_check` treats 403 as a
+  successful connection with an unentitled product, because it is not something
+  to keep debugging locally.
+- **Agent mandates stay local even in live mode.** Category locks, cumulative
+  caps and revocation are this application's policy layer — VTS does not enforce
+  them. Live mode changes where the *token* comes from, not where the guardrails
+  live. Visa's own agentic programme (Trusted Agent Protocol / Intelligent
+  Commerce) is a partner programme, not a self-serve sandbox product.
+
+Live provisioning **degrades to simulation** rather than failing: if VDP is
+unreachable or unentitled, checkout still works and `assurance_method` records
+honestly that the token was simulated.
 
 ### Safeguards on the authorization itself
 

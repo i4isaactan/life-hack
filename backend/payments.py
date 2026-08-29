@@ -48,6 +48,7 @@ import logging
 import secrets
 import time
 
+from . import merchants
 from . import vts
 from . import webauthn
 from .models import (
@@ -210,6 +211,7 @@ def _price_merchant(
         payment_method_id=method.id,
         eta_days=eta,
         mcc=vts.mcc_for_merchant(merchant) or "",
+        category_label=vts.label_for_mcc(vts.mcc_for_merchant(merchant) or ""),
         token_last4=token.token_last4 if token else "",
     )
 
@@ -723,8 +725,18 @@ def _verified(intent_id: str) -> bool:
         return True
     # A fresh, unspent passkey assertion is the stronger form of the same
     # evidence and satisfies the same requirement.
+    #
+    # `purpose` is checked here for the same reason `_consume_assertion`
+    # checks it: the biometric a user performed to grant the agent a spending
+    # mandate is not approval of a payment, even though both ceremonies ask
+    # for the identical gesture. Without this the two are interchangeable on
+    # the no-assertion_id path, and the separation the other function enforces
+    # would rest on an id-naming convention in main.py rather than on a check.
     return any(
-        r["intent_id"] == intent_id and not r["used"] and now <= r["expires_at"]
+        r.get("purpose") == "payment"
+        and r["intent_id"] == intent_id
+        and not r["used"]
+        and now <= r["expires_at"]
         for r in ASSERTIONS.values()
     )
 
@@ -972,6 +984,18 @@ def authorize(
             audit.append(
                 f"{charge.merchant}: {_money(charge.total_cents)} DECLINED on "
                 f"{method.display}. Not charged."
+            )
+
+    # Record each approved leg against the selling merchant. Only approved
+    # legs: a declined charge earns nobody anything, and crediting one would
+    # put money in a payout ledger that was never collected.
+    for charge in intent.charges:
+        if charge.status == "approved":
+            merchants.record_order_split(
+                order_id=order_id,
+                intent_id=intent.id,
+                merchant_name=charge.merchant,
+                gross_cents=charge.total_cents,
             )
 
     receipt = AuthorizationReceipt(

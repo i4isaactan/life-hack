@@ -105,6 +105,18 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 
 .spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
 @keyframes spin { to { transform:rotate(360deg); } }
+/* On a filled button the accent arc is the button's own colour, so the
+   spinner reads as a static grey ring. Inherit the button's text colour
+   instead, and dim the track rather than tinting it. */
+button .spin, .primary .spin {
+  border-color:rgba(255,255,255,.34); border-top-color:currentColor;
+}
+/* Reduced motion: a spinner that cannot spin must still say "working", so it
+   pulses opacity instead of rotating. */
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation:spin-fade 1.1s ease-in-out infinite; }
+  @keyframes spin-fade { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+}
 
 /* --- Brand ----------------------------------------------------------------- */
 
@@ -117,8 +129,12 @@ button:disabled { opacity:.5; cursor:not-allowed; }
    and the charge they approve are verifiably the same thing. */
 .pay-overlay { position:fixed; inset:0; z-index:20; background:rgba(32,53,44,.45); backdrop-filter:blur(7px); display:grid; place-items:center; padding:20px; }
 .pay-sheet { width:min(100%,560px); max-height:min(880px,calc(100vh - 40px)); background:var(--panel); border-radius:var(--r-xl); box-shadow:var(--shadow-xl); display:grid; grid-template-rows:auto 1fr auto; overflow:hidden; }
-.pay-head { padding:17px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:11px; }
-.pay-head strong { font:700 19px Georgia,serif; } .pay-head .muted { font-size:12px; }
+.pay-head { padding:17px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
+/* Title over sub-line. Both are inline elements, so without this they run
+   together on one line with no gap between them. */
+.pay-head > div { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.pay-head strong { font:700 19px Georgia,serif; line-height:1.25; }
+.pay-head .muted { font-size:12px; line-height:1.35; }
 .pay-close { width:auto; margin:0 0 0 auto; padding:5px 11px; background:transparent; color:var(--ink); border:1px solid var(--line); border-radius:999px; font-weight:600; }
 .pay-body { padding:20px 22px; overflow:auto; }
 .pay-foot { padding:15px 22px; border-top:1px solid var(--line); background:var(--soft); }
@@ -137,7 +153,12 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .charge-head { display:flex; align-items:center; justify-content:space-between; gap:9px; margin-bottom:9px; }
 .charge-head strong { font-size:14px; } .charge-head .amt { font-weight:700; }
 .charge-line { display:grid; grid-template-columns:36px 1fr auto; gap:9px; align-items:center; padding:6px 0; }
-.charge-line img { width:36px; height:36px; object-fit:cover; border-radius:6px; background:var(--soft); }
+/* Product shot, so `contain`: the payment sheet lists what is being bought,
+   and a cropped thumbnail there is the one place a wrong item is expensive. */
+.charge-line img {
+  width:36px; height:36px; object-fit:contain; border-radius:6px;
+  background:var(--soft); padding:2px;
+}
 .charge-line span { font-size:12px; } .charge-line .muted { font-size:11px; }
 .charge-meta { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin-top:9px; padding-top:9px; border-top:1px dashed var(--line); font-size:11px; color:var(--muted); }
 .card-pill { display:inline-flex; align-items:center; gap:6px; background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:3px 9px; font-size:11px; font-weight:600; color:var(--ink); }
@@ -159,8 +180,6 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .hold-fill { position:absolute; inset:0 auto 0 0; width:0%; background:rgba(255,255,255,.28); pointer-events:none; transition:width .06s linear; }
 .hold-btn span { position:relative; }
 .pay-secure { display:flex; align-items:center; gap:7px; justify-content:center; color:var(--muted); font-size:11px; margin-top:9px; }
-.spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
-@keyframes spin { to { transform:rotate(360deg); } }
 /* --- Visa Agentic Stack ------------------------------------------------------
    The mandate panel, the passkey prompt and the token pills. Built from the
    same tokens as the rest of the sheet so the security surface reads as part

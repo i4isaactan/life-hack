@@ -14,6 +14,7 @@ plumbing around what the writer already provides.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Annotated, Any, TypedDict
 
 from langgraph.config import get_stream_writer
@@ -21,7 +22,9 @@ from langgraph.graph import END, START, StateGraph
 
 from . import config
 from .models import (
+    AREA_PER_EXTRA_SQM,
     PLACEMENT_ORDER,
+    ROLE_COUNTS,
     Alternative,
     Cart,
     CartLine,
@@ -63,6 +66,9 @@ class GraphState(TypedDict, total=False):
     rejected_ids: list[str]
     # Roles the user asked to drop from the design.
     excluded_roles: list[str]
+    # Exact per-role quantities the user asked for, overriding the heuristic
+    # that would otherwise size the design to the room and budget.
+    role_counts: dict[str, int]
     # Per-role width ceilings from "the sofa is too big".
     size_caps: dict[str, float]
     # User-supplied room facts that override the vision estimate.
@@ -89,6 +95,117 @@ BUDGET_SHARE: dict[Role, float] = {
     Role.ACCENT_CHAIR: 0.22,
     Role.FLOOR_LAMP: 0.10,
 }
+
+# Which role gets the next spare piece. Seating only: an extra chair changes
+# how many people the room holds, which is a real improvement to a design.
+# Nothing else scales that way - a second lamp is decoration nobody asked for,
+# and it competes for budget with the chair that would have been useful.
+_EXTRA_PRIORITY: list[Role] = [Role.ACCENT_CHAIR]
+
+
+def _extra_capacity(
+    role: Role,
+    room: RoomAnalysis,
+    have: int,
+    asked: dict[str, int] | None = None,
+) -> int:
+    """How many more of `role` this room can take, beyond the `have` it has.
+
+    An explicit request wins outright. If the user asked for one chair, one
+    chair is the answer whatever the floor area suggests - the heuristics below
+    exist to guess at what someone wants, and there is nothing left to guess
+    once they have said it.
+
+    Otherwise, two independent ceilings, whichever is lower: what the role
+    tolerates at all (ROLE_COUNTS), and what this room's floor area supports.
+    The area test uses the room's TOTAL area rather than its free area because
+    it runs before the solver - nothing is placed yet, so there is no free area
+    to measure. That makes it an estimate, and it is deliberately a
+    conservative one: the solver still has the final say and will skip anything
+    that does not fit, so an over-count costs a skipped item, not a bad layout.
+    """
+    if asked and role.value in asked:
+        return max(0, asked[role.value] - have)
+
+    ceiling = ROLE_COUNTS.get(role, (0, 1))[1]
+    room_allows = max(0, ceiling - have)
+    per_extra = AREA_PER_EXTRA_SQM.get(role)
+    if per_extra is None:
+        return room_allows
+
+    # What the floor area supports IN TOTAL, then how many more that leaves.
+    #
+    # Written as a fixed total rather than a per-step allowance on purpose: the
+    # previous form was `int(area/per) - have + 1`, whose "+ 1" moved the
+    # target every time a piece was added, so the loop kept finding one more
+    # seat's worth of room and always overshot by one. A 17.5m2 room that
+    # should hold two chairs got three.
+    area_sqm = (room.width_cm * room.depth_cm) / 10_000
+    supported = int(area_sqm / per_extra)
+    return max(0, min(room_allows, supported - have))
+
+
+def _add_extras(
+    selected: list[CatalogItem],
+    candidates: dict[str, list[CatalogItem]],
+    room: RoomAnalysis,
+    remaining_cents: int,
+    asked: dict[str, int] | None = None,
+) -> int:
+    """Add second and third pieces where the room and budget support them.
+
+    Returns the amount spent. Mutates `selected` in place, appending in the
+    order extras were taken so the caller's role grouping still works.
+
+    Round-robin across roles rather than filling one role to its cap: a room
+    with money for two extras is better served by a chair and a lamp than by
+    two chairs, and taking one pass at a time falls out of that naturally.
+
+    Distinct items only. A second identical chair is a quantity, not a
+    different product, and the cart already carries quantity - duplicating the
+    id here would double-count it and hand the solver two placements it thinks
+    are two products.
+    """
+    if remaining_cents <= 0:
+        return 0
+
+    chosen_ids = {i.id for i in selected}
+    counts: dict[Role, int] = defaultdict(int)
+    for item in selected:
+        counts[item.role] += 1
+
+    # Only roles already in the design. An extra is a second one of something,
+    # so a role the first pass could not afford at all is not a candidate here.
+    #
+    # A role the user gave an explicit count for goes first: an asked-for chair
+    # should not lose its place in the budget to a lamp nobody mentioned.
+    wanted = [r for r in _EXTRA_PRIORITY if counts[r] > 0]
+    wanted.sort(key=lambda r: r.value not in (asked or {}))
+
+    spent = 0
+    added = True
+    while added:
+        added = False
+        for role in wanted:
+            if _extra_capacity(role, room, counts[role], asked) <= 0:
+                continue
+            pool = [
+                c for c in candidates.get(role.value, ())
+                if c.id not in chosen_ids
+                and c.price_cents <= remaining_cents - spent
+            ]
+            if not pool:
+                continue
+            # Retrieval order, so the extra is the next-best match rather than
+            # whatever happens to be cheapest.
+            pick = pool[0]
+            selected.append(pick)
+            chosen_ids.add(pick.id)
+            counts[role] += 1
+            spent += pick.price_cents
+            added = True
+
+    return spent
 
 
 def build_role_options(
@@ -193,6 +310,28 @@ def build_graph(
                     *(r.value for r in intent.remove_roles),
                 }
             )
+        if intent.role_counts:
+            # An explicit count overrides whatever the room-and-budget
+            # heuristic would have chosen, and persists for the session: a
+            # user who asked for one chair should not get two back the next
+            # time they change the budget.
+            update["role_counts"] = {
+                **(state.get("role_counts") or {}),
+                **{k: max(0, int(v)) for k, v in intent.role_counts.items()},
+            }
+            # Zero is a removal by another name. Folding it into the same
+            # exclusion set means the rest of the pipeline needs to understand
+            # only one way of saying "none of these".
+            # ...and a count above zero un-excludes a role the user dropped
+            # earlier. Without this, "no chairs" followed by "actually, two
+            # chairs" would leave the exclusion standing and silently ignore
+            # the second message.
+            wanted = {k for k, v in intent.role_counts.items() if int(v) > 0}
+            excluded = set(
+                update.get("excluded_roles") or state.get("excluded_roles") or []
+            )
+            excluded |= {k for k, v in intent.role_counts.items() if int(v) <= 0}
+            update["excluded_roles"] = sorted(excluded - wanted)
         if intent.max_width_cm:
             update["size_caps"] = {
                 **(state.get("size_caps") or {}),
@@ -450,6 +589,22 @@ def build_graph(
             if pick is not None:
                 selected.append(pick)
                 spent += pick.price_cents
+
+        # Second pass: rooms that can take more than one of something.
+        #
+        # The first pass fills each role once, which is the right shape for a
+        # design's backbone but wrong as a final answer - "one of each" seats
+        # three people in a room that holds eight, and buys a rug for a room
+        # that would rather have the chair. Extras are added only after every
+        # role has had its turn, so a second chair can never price out the
+        # coffee table.
+        spent += _add_extras(
+            selected,
+            candidates,
+            state["room"],
+            budget - spent,
+            state.get("role_counts") or {},
+        )
 
         # Retrieval found several candidates per role and we kept one. The rest
         # are equally valid picks, so offer them rather than presenting a single

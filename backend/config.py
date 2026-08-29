@@ -19,6 +19,23 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 HAS_OPENAI = bool(OPENAI_API_KEY)
 
 VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o")
+
+# --- Catalog ingest: dimension recovery ------------------------------------
+# A real merchant feed is missing the dimension that is hardest for them to
+# publish, not a random one - HipVan's export has depth and height for most
+# upholstery and no width. Requiring three columns rejects most of a real
+# catalog, so a small model estimates the missing ones from the dimensions
+# that ARE present plus the product's category and title.
+#
+# Small and cheap on purpose: this runs once per upload over a whole feed, the
+# task is interpolation between known anchors rather than reasoning, and the
+# result is always labelled as an estimate. With no OPENAI_API_KEY set, an
+# offline lookup table runs instead - the same degradation as vision.
+DIMENSION_MODEL = os.getenv("DIMENSION_MODEL", "gpt-4o-mini")
+# One call covers the whole feed, so the ceiling scales with rows, not items.
+DIMENSION_MAX_TOKENS = int(os.getenv("DIMENSION_MAX_TOKENS", "4000"))
+# Estimating is opt-out: set to 0 to require merchants to supply real numbers.
+DIMENSION_ESTIMATE = os.getenv("DIMENSION_ESTIMATE", "1") not in ("0", "false", "no")
 # Intent parsing is short, structured and on the critical path of every turn,
 # so it uses a smaller model than vision.
 INTENT_MODEL = os.getenv("INTENT_MODEL", "gpt-4o-mini")
@@ -88,7 +105,60 @@ DEFAULT_AGENT_MANDATE_HOURS = int(os.getenv("DEFAULT_AGENT_MANDATE_HOURS", "24")
 # caps are entirely client-declared: an agent could request a mandate far
 # larger than the user would ever approve, and the only thing standing in the
 # way would be the UI it is bypassing.
+# A merchant catalogue upload. Large enough for a real feed of a few thousand
+# products, small enough that an unbounded upload cannot exhaust memory.
+MAX_CATALOG_UPLOAD_BYTES = int(os.getenv("MAX_CATALOG_UPLOAD_BYTES", str(8 * 1024 * 1024)))
+
 MAX_AGENT_MANDATE_CENTS = int(os.getenv("MAX_AGENT_MANDATE_CENTS", "1000000"))
+
+# --- Visa Developer Platform (real sandbox) --------------------------------
+#
+# The only credentials in this project that authenticate to something outside
+# it. Live mode is OFF by default and must be turned on explicitly: VDP
+# routinely refuses products a project is not entitled to, so an integration
+# that assumed access would break the demo for anyone without it.
+VISA_LIVE = os.getenv("VISA_LIVE", "").strip().lower() in ("1", "true", "yes")
+
+# Mutual TLS material. Paths, never contents - a private key in an env var
+# ends up in shell history, process listings and crash dumps.
+VISA_CERT_PATH = os.getenv("VISA_CERT_PATH", "./secrets/visa_cert.pem")
+VISA_KEY_PATH = os.getenv("VISA_KEY_PATH", "./secrets/visa_private_key.pem")
+# The sandbox chain (intermediate + root) for OUR client certificate. Note it
+# is NOT used to verify Visa's server: sandbox.api.visa.com is DigiCert-signed
+# and verifies against the system's public CA store. Loading this bundle as the
+# server trust store is what produces "unable to get local issuer certificate".
+VISA_CA_PATH = os.getenv("VISA_CA_PATH", "./secrets/visa_ca_bundle.pem")
+
+# HTTP Basic, checked in addition to the certificates.
+VISA_USER_ID = os.getenv("VISA_USER_ID", "").strip()
+VISA_PASSWORD = os.getenv("VISA_PASSWORD", "").strip()
+
+# Click to Pay / VDES x-pay-token signing.
+VISA_API_KEY = (
+    os.getenv("VISA_API_KEY") or os.getenv("VISA_X_PAY_TOKEN") or ""
+).strip()
+VISA_SHARED_SECRET = os.getenv("VISA_SHARED_SECRET", "").strip()
+
+# Message Level Encryption. Visa Direct requires the request body to be
+# JWE-encrypted with Visa's public key, on top of mutual TLS. The key ID is
+# returned when you register your public key in the VDP dashboard and travels
+# in the `keyId` JWE header - Visa uses it to pick which key to decrypt with.
+VISA_MLE_KEY_ID = os.getenv("VISA_MLE_KEY_ID", "").strip()
+VISA_MLE_PRIVATE_KEY_PATH = os.getenv(
+    "VISA_MLE_PRIVATE_KEY_PATH", "./secrets/visa_mle_private.pem"
+)
+# Visa's own MLE certificate - downloaded from the dashboard beside the key ID.
+# Used to ENCRYPT requests; our private key above DECRYPTS the responses.
+VISA_MLE_SERVER_CERT_PATH = os.getenv(
+    "VISA_MLE_SERVER_CERT_PATH", "./secrets/visa_mle_server.pem"
+)
+
+# Visa Direct originator identifiers. Issued with a Visa Direct agreement and
+# specific to the originating entity, so they cannot be defaulted to anything
+# meaningful - a payout with someone else's BIN is not a payout.
+VISA_DIRECT_ACQUIRING_BIN = os.getenv("VISA_DIRECT_ACQUIRING_BIN", "").strip()
+VISA_DIRECT_ACQUIRER_COUNTRY = os.getenv("VISA_DIRECT_ACQUIRER_COUNTRY", "702").strip()
+VISA_DIRECT_SENDER_ACCOUNT = os.getenv("VISA_DIRECT_SENDER_ACCOUNT", "").strip()
 
 # Base64 inflates payloads by ~33%, so an 8MB file becomes ~11MB in memory.
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -137,10 +207,24 @@ HAS_GEMINI = bool(GEMINI_API_KEY)
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
 
 # The model composes up to 14 object references, but Google's own guidance is
-# that 3-5 focused references control far better than 14 competing ones. A full
-# design is 5-6 pieces, so this caps references at the useful end of that range
-# and drops the lowest-priority roles first.
-GEMINI_MAX_REFERENCES = int(os.getenv("GEMINI_MAX_REFERENCES", "6"))
+# that 3-5 focused references control far better than 14 competing ones.
+#
+# Set to the largest design the selection step can now produce - one sofa, one
+# rug, one table, two chairs, one lamp - so a piece the user is being billed
+# for is never silently left out of the picture of what they are buying. That
+# was the failure this fixes: a 7-piece design against a 6-reference budget
+# rendered six pieces and reported the seventh as "not shown".
+#
+# The right way to keep this number small is to put less furniture in the room,
+# which ROLE_COUNTS now does, rather than to render less of what was chosen.
+GEMINI_MAX_REFERENCES = int(os.getenv("GEMINI_MAX_REFERENCES", "8"))
+
+# How freely the composer may deviate from its references. Variety in the
+# design now comes from solving several genuinely different layouts, so
+# sampling temperature no longer has to supply it - and every bit of it that
+# remains is licence to redraw the customer's walls.
+GEMINI_COMPOSE_TEMPERATURE = float(os.getenv("GEMINI_COMPOSE_TEMPERATURE", "0.15"))
+
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
 HAS_REPLICATE = bool(REPLICATE_API_TOKEN)
@@ -227,11 +311,16 @@ IMAGE_FETCH_MAX_BYTES = int(os.getenv("IMAGE_FETCH_MAX_BYTES", str(8 * 1024 * 10
 # only Castlery's. That is acceptable because the fetch is still bounded by
 # IMAGE_FETCH_MAX_BYTES and the timeout, and the URLs come from our own
 # scrape - but it is the reason to keep this list short and reviewed.
+# imgix, like Cloudinary, is multi-tenant - but this entry is a single tenant's
+# subdomain (hipvan-images-production), so it grants only that merchant's
+# images. Added so the HipVan demo feed can demonstrate reverse image search;
+# a real merchant's host is an operator decision, made the same way.
 IMAGE_FETCH_ALLOWED_HOSTS = tuple(
     h.strip().lower()
     for h in os.getenv(
         "IMAGE_FETCH_ALLOWED_HOSTS",
-        "www.ikea.com,ikea.com,res.cloudinary.com",
+        "www.ikea.com,ikea.com,res.cloudinary.com,"
+        "hipvan-images-production.imgix.net",
     ).split(",")
     if h.strip()
 )

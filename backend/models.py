@@ -44,6 +44,55 @@ PLACEMENT_ORDER: list[Role] = [
     Role.FLOOR_LAMP,
 ]
 
+# How many of each role a room can take, as (minimum, maximum).
+#
+# The design used to be exactly one of everything, which is wrong in both
+# directions: a large room seats more than three people, and a small one with a
+# tight budget is better off with no rug than with a rug and nowhere to sit.
+#
+# A minimum of 0 means the role is genuinely optional - the design is still
+# coherent without it. Only seating has a real floor, and only because a living
+# room with nothing to sit on is not a living room.
+#
+# Maximums above 1 are ceilings, not targets: how many the role could ever
+# sensibly take. What a given room actually gets is decided against its floor
+# area and the remaining budget, not by filling to the cap.
+ROLE_COUNTS: dict[Role, tuple[int, int]] = {
+    # One sofa. A second is a different design (a sectional, an L-shape), not
+    # more of this one, and offering it as "more" would be misleading.
+    Role.SOFA: (1, 1),
+    # Rugs do not stack in a single seating area, and a room can do without.
+    Role.RUG: (0, 1),
+    Role.COFFEE_TABLE: (0, 1),
+    # A pair of flanking chairs is a standard arrangement and reads as
+    # designed. Beyond that a living room starts to look like a waiting room,
+    # and every extra chair is another object the compositor has to find a
+    # believable spot for. Someone who genuinely wants four can ask - an
+    # explicit count overrides this ceiling.
+    Role.ACCENT_CHAIR: (0, 2),
+    # One. A large room can genuinely hold two, but a floor lamp is a thin
+    # vertical object with one good position - at the end of the seating - and
+    # a second has nowhere to be that reads as deliberate rather than left
+    # over. It was also the piece that most often came back looking wrong,
+    # because two lamps described in nearly identical words compose as one
+    # confused object. Not worth the render.
+    Role.FLOOR_LAMP: (0, 1),
+}
+
+# Floor area, in square metres, the room needs PER PIECE of a role before it
+# can hold that many. Deliberately demanding: an extra chair is only an
+# improvement if there is room to walk around it, and the failure mode this
+# guards against - a cluttered room where furniture has been put wherever it
+# fits - is much worse than the one it risks, a slightly sparse one.
+#
+# At 9m2 each, a 3.5x3.5m room gets one chair and a 4.6x3.8m room gets two,
+# which is what those rooms actually look right with.
+AREA_PER_EXTRA_SQM: dict[Role, float] = {
+    Role.ACCENT_CHAIR: 9.0,
+    Role.FLOOR_LAMP: 12.0,
+}
+
+
 # Rugs are deliberately non-colliding: the plan is 2D but the room is 3D, and
 # sofas and tables physically rest on top of a rug. Treating one as solid would
 # push every other piece off it, which is the opposite of correct layout.
@@ -578,6 +627,15 @@ class Intent(BaseModel):
     reject_item_ids: list[str] = Field(default_factory=list)
     # Roles to drop from the design entirely ("I don't need a rug").
     remove_roles: list[Role] = Field(default_factory=list)
+    # An exact count for a role: {"accent_chair": 1} from "I only want one
+    # chair", {"accent_chair": 4} from "seating for four".
+    #
+    # Distinct from remove_roles, which can only say "none". Once a design can
+    # hold several of something, "one fewer" is a thing a user will ask for and
+    # dropping the role entirely is the wrong answer to it - it deletes the
+    # chair they wanted to keep. A count of 0 is legal and means the same as a
+    # removal, so the parser can use whichever is more natural.
+    role_counts: dict[str, int] = Field(default_factory=dict)
     # Per-role size ceiling in cm, from "the sofa is too big".
     max_width_cm: dict[str, float] = Field(default_factory=dict)
 
@@ -1011,6 +1069,11 @@ class MerchantCharge(BaseModel):
     # because it is what the mandate's category lock is actually checked
     # against - naming the merchant alone would not explain a refusal.
     mcc: str = ""
+    # The same category in the words a shopper uses. The code is what the
+    # network checks and what the audit trail records; the label is what the
+    # payment sheet shows, because "5712" does not tell a cardholder whether
+    # their agent is buying a sofa or a slot machine.
+    category_label: str = ""
     # The network token presented for this leg, never the funding PAN. Its
     # last4 differs from the card's on purpose: that is how a user matches a
     # statement line to the agent that created it.
@@ -1332,3 +1395,102 @@ class MandateEvaluation(BaseModel):
 class RevokeMandateRequest(BaseModel):
     token_id: str
     reason: str = "revoked by user"
+
+
+# --- Merchant platform ------------------------------------------------------
+#
+# Turns the bare `merchant` string on every CatalogItem into an account that
+# can authenticate, publish products and be paid. See backend/merchants.py for
+# what is real here and what stops at the regulatory boundary.
+
+
+class MerchantOnboardRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    legal_name: str = ""
+    email: str
+    country: str = "SG"
+    payout_account_last4: str = ""
+    # Where a Visa Direct payout lands. Test PANs only in the sandbox; a real
+    # deployment collects this at a vault and stores a token, never the number.
+    payout_pan: str = ""
+    webhook_url: str = ""
+    # NOTE: `mcc` is deliberately absent. The platform assigns the category
+    # code, because it drives the agent mandate's category lock - a merchant
+    # that could declare its own MCC could opt itself into any agent's scope.
+
+
+class MerchantSummary(BaseModel):
+    """A merchant account as the platform and the merchant both see it."""
+
+    id: str
+    name: str
+    legal_name: str = ""
+    email: str = ""
+    country: str = "SG"
+    mcc: str = ""
+    status: Literal["pending", "active", "suspended", "closed"] = "pending"
+    kyc_status: Literal["unverified", "in_review", "verified", "rejected"] = "unverified"
+    commission_bps: int = 500
+    payout_account_last4: str = ""
+    webhook_url: str = ""
+    created_at: float = 0.0
+    can_sell: bool = False
+    can_settle: bool = False
+
+
+class MerchantOnboardResponse(BaseModel):
+    """Returned once at onboarding. The secret never appears again."""
+
+    merchant: MerchantSummary
+    key_id: str
+    api_secret: str
+    warning: str = (
+        "Store this secret now - it is shown once and cannot be retrieved. "
+        "No funds can settle to this account until KYC is verified."
+    )
+
+
+class MerchantProductUpload(BaseModel):
+    """One product a merchant publishes to the catalog.
+
+    `merchant` is absent on purpose: it is taken from the authenticated
+    credential, never from the body, so a merchant cannot publish products
+    under another merchant's name.
+    """
+
+    sku: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    role: Role
+    price_cents: int = Field(ge=0)
+    currency: str = "SGD"
+    width_cm: float = Field(gt=0)
+    depth_cm: float = Field(gt=0)
+    height_cm: float = Field(gt=0)
+    image_url: str = ""
+    checkout_url: str = ""
+    description: str = ""
+    materials: list[str] = Field(default_factory=list)
+    primary_color: str = "neutral"
+    swatch: str = "#cccccc"
+    style_tags: list[str] = Field(default_factory=list)
+    in_stock: bool = True
+
+
+class MerchantCatalogPush(BaseModel):
+    products: list[MerchantProductUpload] = Field(min_length=1, max_length=500)
+
+
+class MerchantCatalogResult(BaseModel):
+    accepted: int = 0
+    rejected: int = 0
+    item_ids: list[str] = Field(default_factory=list)
+    errors: list[dict[str, str]] = Field(default_factory=list)
+
+
+class MerchantBalance(BaseModel):
+    merchant_id: str
+    pending_cents: int = 0
+    order_count: int = 0
+    currency: str = "SGD"
+    can_settle: bool = False
+    blocked_reason: str = ""

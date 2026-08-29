@@ -23,11 +23,14 @@ transform the real one does, so a projection bug surfaces without a key.
 from __future__ import annotations
 
 import asyncio
+import urllib.error
 import urllib.parse
+import urllib.request
 import base64
 import io
 import logging
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from . import config
@@ -39,6 +42,7 @@ from .models import (
     Confidence,
     Detection,
     LayoutResult,
+    Opening,
     Placement,
     RenderFailure,
     RenderMethod,
@@ -46,6 +50,7 @@ from .models import (
     RoomAnalysis,
     Role,
     RoomRender,
+    Wall,
 )
 
 log = logging.getLogger(__name__)
@@ -672,6 +677,41 @@ def _fetchable(url: str) -> bool:
     )
 
 
+class _AllowlistedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-check the allowlist on every redirect hop.
+
+    Checking only the URL we were handed is not enough: urllib follows
+    redirects by default, so an allowed host answering 302 can walk the fetch
+    anywhere - including a link-local metadata address or a service on
+    localhost. The allowlist has to hold for the URL actually retrieved, not
+    merely the one requested, which means re-testing each Location.
+
+    Raising HTTPError rather than returning None matters: returning None makes
+    urllib treat the redirect as a final response and hand back the 302 body,
+    which would look like a successful (empty) fetch instead of a refusal.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        if not _fetchable(newurl):
+            log.warning(
+                "refusing redirect to non-allowlisted host: %s", newurl[:100]
+            )
+            raise urllib.error.HTTPError(
+                newurl, code, f"redirect to non-allowlisted host: {msg}", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _safe_opener() -> urllib.request.OpenerDirector:
+    """An opener that enforces `_fetchable` across redirects.
+
+    Built per call rather than cached at import so a test or a deployment that
+    rewrites IMAGE_FETCH_ALLOWED_HOSTS is honoured; constructing one is cheap
+    next to the network round trip it precedes.
+    """
+    return urllib.request.build_opener(_AllowlistedRedirectHandler)
+
+
 async def _fetch_product_image(url: str) -> str | None:
     """Fetch a catalog product shot for appearance conditioning.
 
@@ -692,7 +732,9 @@ async def _fetch_product_image(url: str) -> str | None:
             req = urllib.request.Request(
                 url, headers={"User-Agent": config.IMAGE_FETCH_USER_AGENT}
             )
-            with urllib.request.urlopen(
+            # Opened through the allowlisting opener so a redirect off an
+            # allowed CDN cannot walk this fetch onto a private address.
+            with _safe_opener().open(
                 req, timeout=config.IMAGE_FETCH_TIMEOUT_SECONDS
             ) as resp:
                 # Read one byte past the cap so an oversized body is detected
@@ -726,6 +768,16 @@ _REFERENCE_PRIORITY: list[Role] = [
     Role.ACCENT_CHAIR,
     Role.FLOOR_LAMP,
 ]
+
+
+def _role_occurrence(placement: Placement, placements: list[Placement]) -> int:
+    """Which one of its role this placement is: 0 for the first, 1 for the next.
+
+    Used to interleave the reference budget by round rather than by role, so
+    every role is represented before any role gets a second reference.
+    """
+    same = [p for p in placements if p.role is placement.role]
+    return same.index(placement)
 
 
 def describe_position(placement: Placement, room: RoomAnalysis) -> str:
@@ -774,12 +826,20 @@ def build_composition_prompt(
     lines = [
         "You are compositing a photorealistic interior visualization.",
         "",
-        "The FIRST image is a photograph of a real room. Each image after it is "
-        "a product photograph of a piece of furniture.",
+        "The FIRST image is a photograph of a real room.",
+        "The SECOND image is a top-down floor plan showing exactly where each "
+        "piece of furniture goes in that room. It is a diagram, not a style "
+        "reference: read the positions off it, and do not reproduce its flat "
+        "colours, labels or outlines in your output. The plan is drawn with "
+        "the camera at the bottom edge, so a piece low in the plan is near the "
+        "camera and a piece high in the plan is against the far wall.",
+        "Every image after that is a product photograph of one piece of "
+        "furniture.",
         "",
         "Produce a single photorealistic image of that same room, from the same "
         "camera position and with the same walls, windows, flooring and "
-        "daylight, but furnished with the products shown.",
+        "daylight, but furnished with the products shown, arranged as the plan "
+        "specifies.",
         "",
     ]
 
@@ -791,25 +851,55 @@ def build_composition_prompt(
             "",
         ]
 
+    # How many of each role, so a repeated role can be numbered. "the armchair"
+    # is ambiguous the moment there are two, and an ambiguous reference is how
+    # three chairs become one chair rendered three times.
+    role_totals: Counter[Role] = Counter(p.role for p in placements)
+    seen: Counter[Role] = Counter()
+
     lines.append("Then place each product:")
-    for n, p in enumerate(placements, start=2):
+    # Numbering starts at 3: image 1 is the room, image 2 is the floor plan.
+    for n, p in enumerate(placements, start=3):
         item = items[p.item_id]
         relation = _relate(p, placements, items)
+        label = p.role.value.replace("_", " ")
+        if role_totals[p.role] > 1:
+            seen[p.role] += 1
+            label = f"{label} {seen[p.role]} of {role_totals[p.role]}"
         lines.append(
-            f"  {n}. {item.title} ({item.role.value.replace('_', ' ')}) - "
+            f"  {n}. {item.title} ({label}) - "
             f"{describe_position(p, room)}"
             + (f"; {relation}" if relation else "")
             + "."
         )
 
+    # Counts stated as a total as well as a list. A model that loses track
+    # mid-list still has the number to check itself against, and this is the
+    # instruction that stops it defaulting to one of everything.
+    tally = ", ".join(
+        f"{n} {role.value.replace('_', ' ')}" + ("s" if n > 1 else "")
+        for role, n in sorted(role_totals.items(), key=lambda kv: kv[0].value)
+    )
+
     lines += [
         "",
         "Requirements:",
+        f"- The finished room contains exactly: {tally}. Include every one of "
+        "them, and do not add furniture that is not on this list.",
         "- Match each piece to its reference photograph: same shape, same "
         "materials, same colour, same proportions. These are real products a "
         "customer will buy, so silhouette and finish must be recognisable.",
         "- Respect the stated positions and relative sizes. Furniture rests on "
         "the floor with contact shadows; nothing floats or intersects.",
+        "- Where the written positions and the floor plan could be read "
+        "differently, follow the floor plan: it is the measured layout.",
+        # The faithfulness instruction. Without it the model treats the photo
+        # as a style reference and re-renders the architecture, which is the
+        # difference between a visualization and an unrelated pretty room.
+        "- This is the customer's own room, not an inspiration image. Keep its "
+        "architecture exactly: the same camera position and lens, the same "
+        "wall positions and proportions, the same windows and doors in the "
+        "same places, the same floor. Change only the furniture.",
         f"- Keep the room's own character: {room.wall_color} walls, "
         f"{room.flooring} flooring, {room.lighting}.",
         "- Relight each product to match the room's existing light direction "
@@ -832,15 +922,21 @@ def _relate(
     guarantees these, so stating them costs nothing and is what stops the model
     arranging the same pieces into an unrelated room.
     """
-    by_role = {p.role: p for p in placements}
-    sofa = by_role.get(Role.SOFA)
-    rug = by_role.get(Role.RUG)
+    # First of each role, not a dict comprehension over all of them: with two
+    # chairs in the design the last one would win and every relation would be
+    # described against it. Sofa and rug are capped at one anyway, but reading
+    # them this way keeps the lookup honest as the caps change.
+    sofa = next((p for p in placements if p.role is Role.SOFA), None)
+    rug = next((p for p in placements if p.role is Role.RUG), None)
 
     parts: list[str] = []
     if placement.role is Role.COFFEE_TABLE and sofa:
         parts.append("directly in front of the sofa, within easy reach of it")
     elif placement.role is Role.ACCENT_CHAIR and sofa:
-        parts.append("angled towards the sofa, beside it")
+        # Which side it is actually on, rather than a generic "beside": with
+        # several chairs, telling the model each one sits beside the sofa is
+        # how they end up stacked on top of each other.
+        parts.append(_chair_relation(placement, sofa))
     elif placement.role is Role.FLOOR_LAMP and sofa:
         parts.append("standing beside the sofa")
 
@@ -855,6 +951,32 @@ def _relate(
     return ", ".join(parts)
 
 
+def _chair_relation(placement: Placement, sofa: Placement) -> str:
+    """Where one chair sits relative to the sofa, said precisely.
+
+    The solver has already decided this; the job here is only to not lose it.
+    Chairs are the role most likely to appear more than once, and a vague
+    phrase repeated across three of them is an instruction to put three chairs
+    in one place.
+    """
+    cx = placement.x_cm + placement.w_cm / 2
+    cy = placement.y_cm + placement.d_cm / 2
+    sofa_cx = sofa.x_cm + sofa.w_cm / 2
+    sofa_cy = sofa.y_cm + sofa.d_cm / 2
+
+    # Whichever axis separates them more is the one worth naming.
+    if abs(cx - sofa_cx) >= abs(cy - sofa_cy):
+        side = "to the left of" if cx < sofa_cx else "to the right of"
+    else:
+        # Never "behind": a chair behind a sofa is not a thing anyone wants,
+        # and saying it to an image model is an instruction to render one. A
+        # chair separated from the sofa along the depth axis is across the
+        # coffee table from it, whichever way the room faces - that is the
+        # only arrangement the solver actually produces.
+        side = "across the coffee table from"
+    return f"angled towards the sofa, {side} it"
+
+
 def _overlaps_rug(placement: Placement, rug: Placement) -> bool:
     """Whether a piece's footprint sits over the rug's."""
     return (
@@ -863,6 +985,177 @@ def _overlaps_rug(placement: Placement, rug: Placement) -> bool:
         and placement.y_cm < rug.y_cm + rug.d_cm
         and rug.y_cm < placement.y_cm + placement.d_cm
     )
+
+
+def render_plan_view(
+    room: RoomAnalysis,
+    placements: list[Placement],
+    items: dict[str, CatalogItem],
+    size: int = 768,
+):
+    """Draw the solver's layout as a labelled top-down floor plan.
+
+    This is the constraint the composing path has always been missing. The
+    model takes no mask, so until now the solver's centimetres reached it only
+    as prose - "roughly 40% of the room's width" - which it was free to read
+    loosely, and did. A plan view carries the same geometry as a picture, in
+    the one modality an image model reads precisely.
+
+    Deliberately a diagram and not a render: flat fills, hard edges, a legend.
+    It is passed as a layout instruction, and it says so on its face, so there
+    is no chance of it being mistaken for the style to imitate.
+
+    Needs no camera calibration - unlike the per-item projection path, which
+    cannot draw anything when the photo could not be calibrated. This works
+    from the room's dimensions alone, so it is available whenever a layout is.
+    """
+    from PIL import Image, ImageDraw
+
+    font = _plan_font(15)
+    title_font = _plan_font(19)
+
+    # Fit the room's proportions inside a square canvas, leaving a margin for
+    # the wall labels.
+    pad = 56
+    span = size - 2 * pad
+    scale = min(span / max(room.width_cm, 1), span / max(room.depth_cm, 1))
+    plan_w = room.width_cm * scale
+    plan_d = room.depth_cm * scale
+    ox = (size - plan_w) / 2
+    oy = (size - plan_d) / 2
+
+    img = Image.new("RGB", (size, size), (255, 255, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    def to_px(x_cm: float, y_cm: float) -> tuple[float, float]:
+        return (ox + x_cm * scale, oy + y_cm * scale)
+
+    # Floor and walls.
+    draw.rectangle([ox, oy, ox + plan_w, oy + plan_d], fill=(246, 246, 244))
+    draw.rectangle(
+        [ox, oy, ox + plan_w, oy + plan_d], outline=(30, 30, 30), width=5
+    )
+
+    # Openings, drawn over the wall they interrupt. A door the layout was
+    # solved around should be visible in the layout it produced.
+    for op in room.openings:
+        _draw_opening(draw, op, room, to_px, scale)
+
+    # Furniture, rugs first so they read as underneath. Labels are collected
+    # rather than drawn inline: a label under a later piece's fill is unreadable,
+    # and a plan the model cannot read is worse than no plan at all.
+    labels: list[tuple[float, float, str]] = []
+    for p in sorted(placements, key=lambda p: p.z):
+        item = items.get(p.item_id)
+        rgb = _hex_rgb(p.swatch or (item.swatch if item else "#888888"))
+        x0, y0 = to_px(p.x_cm, p.y_cm)
+        x1, y1 = to_px(p.x_cm + p.w_cm, p.y_cm + p.d_cm)
+        if p.z == 0:
+            # A rug is an area, not an object: outlined and washed rather than
+            # filled, so the pieces standing on it stay readable.
+            draw.rectangle([x0, y0, x1, y1], fill=rgb + (60,), outline=rgb + (200,), width=3)
+        else:
+            draw.rectangle([x0, y0, x1, y1], fill=rgb + (235,), outline=(20, 20, 20, 255), width=2)
+        labels.append(((x0 + x1) / 2, (y0 + y1) / 2, _plan_label(p, placements)))
+
+    _draw_labels(draw, labels, font, size)
+
+    # Which edge the camera is looking from, so the plan can be related to the
+    # photograph rather than merely admired.
+    caption = "CAMERA THIS SIDE"
+    cap_w = draw.textbbox((0, 0), caption, font=font)[2]
+    draw.text(
+        ((size - cap_w) / 2, oy + plan_d + 14),
+        caption,
+        fill=(110, 110, 110),
+        font=font,
+    )
+    draw.text((ox, 14), "LAYOUT PLAN - TOP-DOWN VIEW", fill=(20, 20, 20), font=title_font)
+    draw.text(
+        (ox, 36),
+        f"room {room.width_cm:.0f} x {room.depth_cm:.0f} cm",
+        fill=(110, 110, 110),
+        font=font,
+    )
+    return img
+
+
+def _plan_font(size: int):
+    """A legible font for the plan, falling back to PIL's bitmap default.
+
+    The default font is fixed at roughly 11px, which survives being looked at
+    but not being read by a model at composition scale. Any of these faces is
+    fine; the point is only that the labels are large enough to resolve.
+    """
+    from PIL import ImageFont
+
+    for path in (
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _draw_opening(draw, op: Opening, room: RoomAnalysis, to_px, scale) -> None:
+    """Mark a door or window along its wall in the plan."""
+    colour = (200, 90, 40, 255) if op.kind == "door" else (70, 140, 200, 255)
+    if op.wall in (Wall.NORTH, Wall.SOUTH):
+        y = 0.0 if op.wall is Wall.NORTH else room.depth_cm
+        x0, y0 = to_px(op.offset_cm, y)
+        x1, _ = to_px(op.offset_cm + op.width_cm, y)
+        draw.line([x0, y0, x1, y0], fill=colour, width=7)
+    else:
+        x = 0.0 if op.wall is Wall.WEST else room.width_cm
+        x0, y0 = to_px(x, op.offset_cm)
+        _, y1 = to_px(x, op.offset_cm + op.width_cm)
+        draw.line([x0, y0, x0, y1], fill=colour, width=7)
+
+
+def _plan_label(placement: Placement, placements: list[Placement]) -> str:
+    """Short name for a piece in the plan, numbered when its role repeats."""
+    label = placement.role.value.replace("_", " ").upper()
+    same = [p for p in placements if p.role is placement.role]
+    if len(same) > 1:
+        return f"{label} {same.index(placement) + 1}"
+    return label
+
+
+def _draw_labels(draw, labels, font, size: int) -> None:
+    """Draw every label, nudging any that would overlap one already placed.
+
+    Small pieces sit close together - a lamp beside a chair - so their labels
+    collide even when their footprints do not. Each label is pushed vertically
+    until it finds clear space, which keeps it attached to its own piece while
+    staying readable. Bounded: after a few attempts it is drawn where it lands,
+    since a slightly crowded label beats a missing one.
+    """
+    taken: list[tuple[float, float, float, float]] = []
+    for cx, cy, text in labels:
+        box = draw.textbbox((0, 0), text, font=font)
+        w, h = box[2] - box[0], box[3] - box[1]
+        y = cy
+        for attempt in range(8):
+            # Alternate above and below the anchor, widening each time.
+            step = ((attempt + 1) // 2) * (h + 7)
+            y = cy + (step if attempt % 2 else -step)
+            rect = (cx - w / 2 - 5, y - h / 2 - 4, cx + w / 2 + 5, y + h / 2 + 5)
+            if not any(_boxes_overlap(rect, t) for t in taken):
+                break
+        # Keep it on the canvas even after being nudged.
+        y = min(max(y, h), size - h)
+        rect = (cx - w / 2 - 5, y - h / 2 - 4, cx + w / 2 + 5, y + h / 2 + 5)
+        taken.append(rect)
+        draw.rectangle(list(rect), fill=(255, 255, 255, 232))
+        draw.text((cx - w / 2, y - h / 2 - box[1]), text, fill=(20, 20, 20), font=font)
+
+
+def _boxes_overlap(a, b) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
 class GeminiComposer:
@@ -911,11 +1204,19 @@ class GeminiComposer:
 
         # Priority order, then the reference cap. Fewer, well-chosen references
         # compose better than the maximum the model will accept.
+        #
+        # One of every role before a second of any: sorting by role alone would
+        # let four armchairs exhaust the budget and drop the lamp entirely, so
+        # a room that asked for variety would come back with less of it. Within
+        # a round, role priority still decides.
         ordered = sorted(
             placements,
-            key=lambda p: _REFERENCE_PRIORITY.index(p.role)
-            if p.role in _REFERENCE_PRIORITY
-            else len(_REFERENCE_PRIORITY),
+            key=lambda p: (
+                _role_occurrence(p, placements),
+                _REFERENCE_PRIORITY.index(p.role)
+                if p.role in _REFERENCE_PRIORITY
+                else len(_REFERENCE_PRIORITY),
+            ),
         )
         budget = max(1, config.GEMINI_MAX_REFERENCES)
         omitted = [p.item_id for p in ordered[budget:]]
@@ -934,7 +1235,11 @@ class GeminiComposer:
             ]
         )
 
-        parts: list = [room_img]
+        # Room photo, then the layout plan, then one product photo per piece.
+        # The plan goes second so it reads as an annotation on the room it
+        # describes, and because the prompt numbers the product references
+        # from a fixed offset that has to account for it.
+        parts: list = [room_img, render_plan_view(room, placements, items)]
         used: list[Placement] = []
         for (p, item), product in zip(wanted, fetched):
             if item is None or product is None:
@@ -977,8 +1282,11 @@ class GeminiComposer:
             config=types.GenerateContentConfig(
                 response_modalities=["IMAGE"],
                 # Composition should follow the references, not improvise on
-                # them. Low temperature keeps the products recognisable.
-                temperature=0.4,
+                # them. Low temperature keeps the products recognisable - and
+                # now that variety comes from solving several real layouts,
+                # there is nothing left for sampling noise to contribute
+                # except infidelity to the room.
+                temperature=config.GEMINI_COMPOSE_TEMPERATURE,
             ),
         )
         return _extract_image(resp)
