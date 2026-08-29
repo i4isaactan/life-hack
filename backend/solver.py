@@ -1,0 +1,740 @@
+"""Deterministic spatial layout solver.
+
+All geometry is in centimetres with the origin at the room's top-left corner,
+x increasing right (width) and y increasing down (depth). No LLM produces
+coordinates: placement is rule-based so it always terminates and never emits an
+overlapping or out-of-bounds layout.
+
+The core invariants, asserted by selftest():
+  1. Every placement lies fully inside the room.
+  2. No two colliding placements overlap.
+  3. An item that cannot satisfy both is skipped with a reason, never forced.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from . import config
+from .models import (
+    NON_COLLIDING_ROLES,
+    PLACEMENT_ORDER,
+    ROLE_PRECISION,
+    CatalogItem,
+    Confidence,
+    LayoutResult,
+    MeasurementRequest,
+    Opening,
+    Placement,
+    Precision,
+    RoomAnalysis,
+    Role,
+    SkippedItem,
+    Wall,
+    WithheldItem,
+)
+
+EPS = 1e-6
+
+Rotation = int  # one of 0, 90, 180, 270
+
+
+@dataclass(frozen=True)
+class Rect:
+    x: float
+    y: float
+    w: float
+    d: float
+
+    @property
+    def x2(self) -> float:
+        return self.x + self.w
+
+    @property
+    def y2(self) -> float:
+        return self.y + self.d
+
+    @property
+    def cx(self) -> float:
+        return self.x + self.w / 2
+
+    @property
+    def cy(self) -> float:
+        return self.y + self.d / 2
+
+
+def overlaps(a: Rect, b: Rect, eps: float = EPS) -> bool:
+    """Axis-aligned overlap test.
+
+    Strict inequality matters: furniture pushed flush against a wall or against
+    another piece shares an edge exactly, and touching is legal. A non-strict
+    test would reject correct layouts.
+    """
+    return (
+        a.x < b.x2 - eps
+        and b.x < a.x2 - eps
+        and a.y < b.y2 - eps
+        and b.y < a.y2 - eps
+    )
+
+
+def effective_extents(w: float, d: float, rotation: Rotation) -> tuple[float, float]:
+    """Rotation only swaps extents; the top-left anchor is unchanged.
+
+    Keeping the anchor at top-left avoids trigonometry and the origin drift
+    that comes with rotating about a centre.
+    """
+    return (d, w) if rotation in (90, 270) else (w, d)
+
+
+def inflate(r: Rect, margin: float) -> Rect:
+    """Clearance expressed as an inflated box, so one overlap test covers it."""
+    return Rect(r.x - margin, r.y - margin, r.w + 2 * margin, r.d + 2 * margin)
+
+
+@dataclass
+class _Placed:
+    rect: Rect
+    rotation: Rotation
+    item: CatalogItem
+    collides: bool
+    confidence: Confidence = Confidence.HIGH
+    tolerance_cm: float = 0.0
+    rationale: str = ""
+
+
+# --- confidence ------------------------------------------------------------
+
+# What a user could tell us to unlock each withheld role.
+_MEASUREMENT_QUESTIONS: dict[str, str] = {
+    "measured": "What are the room's actual wall-to-wall dimensions? "
+    "A photo estimate can be off by a metre, which matters for anything "
+    "that sits against a wall.",
+    "openings": "Where are the doors and windows? A door's swing has to stay "
+    "clear, and a console under a window needs to sit below the sill.",
+    "irregular": "Is the room a plain rectangle? Alcoves, chimney breasts or "
+    "an L-shape change where furniture can actually go.",
+}
+
+
+def _measurement_requests(room: RoomAnalysis, role: Role) -> list[MeasurementRequest]:
+    """The specific facts that would let this role be placed confidently."""
+    reqs: list[MeasurementRequest] = []
+    if not room.measured:
+        reqs.append(
+            MeasurementRequest(
+                field="dimensions",
+                question=_MEASUREMENT_QUESTIONS["measured"],
+                affects=[role.value],
+            )
+        )
+    if not room.openings:
+        reqs.append(
+            MeasurementRequest(
+                field="openings",
+                question=_MEASUREMENT_QUESTIONS["openings"],
+                affects=[role.value],
+            )
+        )
+    if room.irregular:
+        reqs.append(
+            MeasurementRequest(
+                field="shape",
+                question=_MEASUREMENT_QUESTIONS["irregular"],
+                affects=[role.value],
+            )
+        )
+    return reqs
+
+
+def blocked_zones(room: RoomAnalysis) -> list[Rect]:
+    """Floor area kept clear for door swings and window access.
+
+    Only derivable when openings are known; an empty list means "unknown",
+    which is exactly why EXACT-tier pieces are withheld rather than guessed.
+    """
+    zones: list[Rect] = []
+    for op in room.openings:
+        depth = op.swing_cm if op.kind == "door" else 0.0
+        if depth <= 0:
+            continue
+        if op.wall is Wall.NORTH:
+            zones.append(Rect(op.offset_cm, 0.0, op.width_cm, depth))
+        elif op.wall is Wall.SOUTH:
+            zones.append(Rect(op.offset_cm, room.depth_cm - depth, op.width_cm, depth))
+        elif op.wall is Wall.WEST:
+            zones.append(Rect(0.0, op.offset_cm, depth, op.width_cm))
+        else:  # EAST
+            zones.append(Rect(room.width_cm - depth, op.offset_cm, depth, op.width_cm))
+    return zones
+
+
+class LayoutSolver:
+    def __init__(self, room: RoomAnalysis) -> None:
+        self.room = room
+        self.W = room.width_cm
+        self.D = room.depth_cm
+        self.margin = config.WALL_MARGIN_CM
+        # Door swings are hard exclusions: blocking a door is not a matter of
+        # taste. Empty when openings are unknown, which is why EXACT-tier
+        # pieces are withheld in that case rather than placed blind.
+        self.blocked = blocked_zones(room)
+
+    # --- geometry helpers -------------------------------------------------
+
+    def _inside(self, r: Rect) -> bool:
+        m = self.margin
+        return (
+            r.x >= m - EPS
+            and r.y >= m - EPS
+            and r.x2 <= self.W - m + EPS
+            and r.y2 <= self.D - m + EPS
+        )
+
+    def _clamp(self, x: float, y: float, w: float, d: float) -> tuple[float, float]:
+        m = self.margin
+        return (
+            min(max(x, m), max(m, self.W - m - w)),
+            min(max(y, m), max(m, self.D - m - d)),
+        )
+
+    def _feasible(self, cand: Rect, placed: list[_Placed], clearance: float) -> bool:
+        if not self._inside(cand):
+            return False
+        if any(overlaps(cand, z) for z in self.blocked):
+            return False
+        zone = inflate(cand, clearance)
+        return not any(overlaps(zone, p.rect) for p in placed if p.collides)
+
+    # --- anchors ----------------------------------------------------------
+
+    def _anchors(
+        self, role: Role, w: float, d: float, placed: list[_Placed]
+    ) -> list[tuple[float, float]]:
+        """Ideal top-left positions for a role, best first.
+
+        Encodes the interior-design intent: sofas sit against the focal wall,
+        coffee tables centre on the sofa, TV units face it, lamps take corners.
+        """
+        m = self.margin
+        focal = self.room.focal_wall
+        cx = (self.W - w) / 2
+        cy = (self.D - d) / 2
+
+        if role is Role.RUG:
+            # Rugs centre in the room and everything else lands on top.
+            return [(cx, cy)]
+
+        if role is Role.SOFA:
+            # The focal wall is the intent, but a long sofa may only fit along
+            # a different axis; try the alternatives before giving up on walls
+            # entirely, since a floating sofa is a much worse outcome.
+            walls = [focal, _opposite(focal)] + [
+                wl for wl in (Wall.NORTH, Wall.SOUTH, Wall.EAST, Wall.WEST)
+                if wl not in (focal, _opposite(focal))
+            ]
+            return [self._against(wl, w, d) for wl in walls]
+
+        sofa = self._find(placed, Role.SOFA)
+
+        if role is Role.COFFEE_TABLE:
+            if sofa:
+                # Directly in front of the sofa, offset into the room.
+                return [
+                    (sofa.rect.cx - w / 2, sofa.rect.y2 + config.CLEARANCE_LADDER_CM[0]),
+                    (sofa.rect.cx - w / 2, sofa.rect.y - d - config.CLEARANCE_LADDER_CM[0]),
+                    (sofa.rect.x2 + config.CLEARANCE_LADDER_CM[0], sofa.rect.cy - d / 2),
+                    (sofa.rect.x - w - config.CLEARANCE_LADDER_CM[0], sofa.rect.cy - d / 2),
+                ]
+            return [(cx, cy)]
+
+        if role is Role.TV_UNIT:
+            # Opposite the sofa, against the wall it faces.
+            return [self._against(_opposite(focal), w, d), (cx, m)]
+
+        if role is Role.ACCENT_CHAIR:
+            if sofa:
+                gap = config.CLEARANCE_LADDER_CM[-1]
+                return [
+                    (sofa.rect.x2 + gap, sofa.rect.y),
+                    (sofa.rect.x - w - gap, sofa.rect.y),
+                    (cx, cy),
+                ]
+            return [(cx, cy)]
+
+        if role is Role.FLOOR_LAMP:
+            # Corners, then beside the sofa.
+            corners = [
+                (m, m),
+                (self.W - m - w, m),
+                (m, self.D - m - d),
+                (self.W - m - w, self.D - m - d),
+            ]
+            if sofa:
+                corners.insert(0, (sofa.rect.x2 + 5, sofa.rect.y))
+            return corners
+
+        return [(cx, cy)]
+
+    def _against(self, wall: Wall, w: float, d: float) -> tuple[float, float]:
+        """Top-left corner for a piece flush against the given wall, centred."""
+        m = self.margin
+        if wall is Wall.NORTH:
+            return ((self.W - w) / 2, m)
+        if wall is Wall.SOUTH:
+            return ((self.W - w) / 2, self.D - m - d)
+        if wall is Wall.WEST:
+            return (m, (self.D - d) / 2)
+        return (self.W - m - w, (self.D - d) / 2)
+
+    @staticmethod
+    def _find(placed: list[_Placed], role: Role) -> _Placed | None:
+        return next((p for p in placed if p.item.role is role), None)
+
+    def _ring(self, ix: float, iy: float, w: float, d: float):
+        """Yield the ideal anchor, then positions spiralling outward from it.
+
+        Bounded by SEARCH_SPAN_CM so a piece nudges a little to fit but never
+        teleports across the room: a coffee table 100cm from its sofa is a
+        worse outcome than reporting it as unplaceable and letting the caller
+        fall back deliberately.
+        """
+        seen: set[tuple[int, int]] = set()
+        step = config.SEARCH_STEP_CM
+        rings = int(config.SEARCH_SPAN_CM / step)
+
+        for ring in range(rings + 1):
+            offsets = (
+                [(0.0, 0.0)]
+                if ring == 0
+                else [
+                    (dx * step, dy * step)
+                    for dx in range(-ring, ring + 1)
+                    for dy in range(-ring, ring + 1)
+                    # Only the perimeter of each ring is new.
+                    if max(abs(dx), abs(dy)) == ring
+                ]
+            )
+            # Prefer small total displacement within a ring.
+            offsets.sort(key=lambda o: abs(o[0]) + abs(o[1]))
+            for dx, dy in offsets:
+                # Clamping keeps the candidate in bounds, but a clamped point
+                # far from the anchor is not a good placement - only accept it
+                # if it stays within the search span of where we wanted it.
+                x, y = self._clamp(ix + dx, iy + dy, w, d)
+                if (
+                    abs(x - ix) > config.SEARCH_SPAN_CM
+                    or abs(y - iy) > config.SEARCH_SPAN_CM
+                ):
+                    continue
+                key = (round(x), round(y))
+                if key not in seen:
+                    seen.add(key)
+                    yield x, y
+
+    def _scan(self, w: float, d: float):
+        """Coarse full-room sweep, used only when every anchor has failed.
+
+        This is the difference between "we could not put the lamp where it
+        belongs" and "the lamp does not fit in the room" - only the latter
+        should ever produce a skip.
+        """
+        m = self.margin
+        step = config.SEARCH_STEP_CM * 2
+        y = m
+        while y + d <= self.D - m + EPS:
+            x = m
+            while x + w <= self.W - m + EPS:
+                yield x, y
+                x += step
+            y += step
+
+    # --- main loop --------------------------------------------------------
+
+    def solve(self, items: list[CatalogItem]) -> LayoutResult:
+        ordered = sorted(
+            items,
+            key=lambda i: PLACEMENT_ORDER.index(i.role)
+            if i.role in PLACEMENT_ORDER
+            else len(PLACEMENT_ORDER),
+        )
+
+        placed: list[_Placed] = []
+        skipped: list[SkippedItem] = []
+        withheld: list[WithheldItem] = []
+
+        exact_ok = self.room.supports_exact_placement
+
+        for item in ordered:
+            # Precision gate. A wall-hugging piece positioned from a photo
+            # estimate is a guess dressed up as a plan: if the room is 40cm
+            # narrower than we think, the sofa does not fit and the console
+            # fouls the door. Withhold rather than guess, and say what would
+            # unlock it.
+            if ROLE_PRECISION.get(item.role) is Precision.EXACT and not exact_ok:
+                withheld.append(
+                    WithheldItem(
+                        item_id=item.id,
+                        name=item.title,
+                        role=item.role,
+                        reason=(
+                            "This piece has to sit against a wall and clear of "
+                            "doors, which needs measurements more exact than a "
+                            "photo estimate."
+                        ),
+                        needs=_measurement_requests(self.room, item.role),
+                    )
+                )
+                continue
+
+            # A coffee table exists to serve seating. Without a sofa it strands
+            # mid-floor and blocks the remaining pieces, so it follows the
+            # seating it belongs to - withheld if the sofa is merely awaiting
+            # measurements, skipped if the sofa genuinely does not fit.
+            if item.role is Role.COFFEE_TABLE and self._find(placed, Role.SOFA) is None:
+                sofa_withheld = any(w.role is Role.SOFA for w in withheld)
+                if sofa_withheld:
+                    withheld.append(
+                        WithheldItem(
+                            item_id=item.id,
+                            name=item.title,
+                            role=item.role,
+                            reason=(
+                                "This table is positioned relative to the sofa, "
+                                "which is waiting on measurements."
+                            ),
+                            needs=_measurement_requests(self.room, item.role),
+                        )
+                    )
+                else:
+                    skipped.append(
+                        SkippedItem(
+                            item_id=item.id,
+                            name=item.title,
+                            role=item.role,
+                            reason="no_fit",
+                            detail="no seating was placed for this table to serve",
+                        )
+                    )
+                continue
+
+            result = self._place_one(item, placed)
+            if result is None:
+                w, d = item.dimensions.width_cm, item.dimensions.depth_cm
+                usable_w = self.W - 2 * self.margin
+                usable_d = self.D - 2 * self.margin
+                too_big = min(w, d) > max(usable_w, usable_d) or (
+                    min(w, d) > min(usable_w, usable_d)
+                    and max(w, d) > max(usable_w, usable_d)
+                )
+                skipped.append(
+                    SkippedItem(
+                        item_id=item.id,
+                        name=item.title,
+                        role=item.role,
+                        reason="too_large" if too_big else "no_fit",
+                        detail=(
+                            f"needs {w:.0f}x{d:.0f}cm; "
+                            f"no free position in {self.W:.0f}x{self.D:.0f}cm room"
+                        ),
+                    )
+                )
+            else:
+                self._score(result, placed)
+                placed.append(result)
+
+        return LayoutResult(
+            room_width_cm=self.W,
+            room_depth_cm=self.D,
+            placements=[
+                Placement(
+                    item_id=p.item.id,
+                    name=p.item.title,
+                    role=p.item.role,
+                    x_cm=round(p.rect.x, 1),
+                    y_cm=round(p.rect.y, 1),
+                    w_cm=round(p.rect.w, 1),
+                    d_cm=round(p.rect.d, 1),
+                    rotation=p.rotation,
+                    z=0 if p.item.role in NON_COLLIDING_ROLES else 1,
+                    swatch=p.item.swatch,
+                    price_cents=p.item.price_cents,
+                    merchant=p.item.merchant,
+                    confidence=p.confidence,
+                    tolerance_cm=round(p.tolerance_cm, 1),
+                    rationale=p.rationale,
+                )
+                for p in placed
+            ],
+            skipped=skipped,
+            withheld=withheld,
+        )
+
+    def _score(self, p: _Placed, placed: list[_Placed]) -> None:
+        """Attach confidence and a positional tolerance to a placement.
+
+        Tolerance is the honest part: how far this piece could move before the
+        layout reads as wrong. A rug centred in open floor can shift 40cm and
+        nobody notices; a chair wedged between a sofa and a wall cannot.
+        """
+        role = p.item.role
+        free = self._free_margin(p.rect, placed)
+
+        if role is Role.RUG:
+            p.confidence = Confidence.HIGH
+            p.tolerance_cm = 40.0
+            p.rationale = "centred in the room; everything else sits on top"
+            return
+
+        if role is Role.COFFEE_TABLE:
+            sofa = self._find(placed, Role.SOFA)
+            if sofa:
+                p.confidence = Confidence.HIGH
+                p.tolerance_cm = 20.0
+                p.rationale = "centred on the sofa at walking clearance"
+            else:
+                p.confidence = Confidence.MEDIUM
+                p.tolerance_cm = 30.0
+                p.rationale = "centred in the room; no seating to anchor to"
+            return
+
+        if role in (Role.ACCENT_CHAIR, Role.FLOOR_LAMP):
+            # These float, so they are forgiving - unless the room has closed
+            # in around them, in which case the position is load-bearing.
+            if free >= 30.0:
+                p.confidence = Confidence.HIGH
+                p.tolerance_cm = min(free, 35.0)
+                p.rationale = "free-standing with room to move"
+            else:
+                p.confidence = Confidence.MEDIUM
+                p.tolerance_cm = max(free, 5.0)
+                p.rationale = f"only {free:.0f}cm of slack around it"
+            return
+
+        # EXACT-tier roles only reach here when the room was measured, so the
+        # position is trustworthy; the remaining question is how tight it is.
+        p.confidence = Confidence.HIGH if free >= 15.0 else Confidence.MEDIUM
+        p.tolerance_cm = min(free, 15.0)
+        p.rationale = "positioned against the wall from measured dimensions"
+
+    def _free_margin(self, r: Rect, placed: list[_Placed]) -> float:
+        """Slack around this rect: how far it could move before it reads wrong.
+
+        Contact with a wall is excluded. A sofa flush against the wall it was
+        anchored to has a zero gap there by design, and counting that as
+        tightness would mark every correctly-placed piece as low confidence.
+        """
+        wall_gaps = [
+            r.x - self.margin,
+            r.y - self.margin,
+            (self.W - self.margin) - r.x2,
+            (self.D - self.margin) - r.y2,
+        ]
+        gaps = [g for g in wall_gaps if g > EPS] or [max(wall_gaps)]
+        for other in placed:
+            if not other.collides or other.rect is r:
+                continue
+            o = other.rect
+            # Only count separation along the axis on which they actually face
+            # each other; two rects side by side are not constrained vertically.
+            if r.y < o.y2 and o.y < r.y2:
+                gaps.append(o.x - r.x2 if o.x >= r.x2 else r.x - o.x2)
+            if r.x < o.x2 and o.x < r.x2:
+                gaps.append(o.y - r.y2 if o.y >= r.y2 else r.y - o.y2)
+        return max(0.0, min(g for g in gaps))
+
+    def _place_one(self, item: CatalogItem, placed: list[_Placed]) -> _Placed | None:
+        collides = item.role not in NON_COLLIDING_ROLES
+        rotations: list[Rotation] = [0, 90] if item.role is not Role.RUG else [0]
+        base_w = item.dimensions.width_cm
+        base_d = item.dimensions.depth_cm
+
+        # Clearance degrades before an item is abandoned. A hard 40cm rule is
+        # unsatisfiable in small rooms (90cm sofa + 40 + 60cm table = 190cm of a
+        # 200cm depth), so a tight-but-usable layout beats dropping the piece.
+        ladder = (
+            config.CLEARANCE_LADDER_CM
+            if item.role in (Role.COFFEE_TABLE, Role.ACCENT_CHAIR)
+            else [0.0]
+        )
+
+        def accepts(cand: Rect, clearance: float) -> bool:
+            # A non-colliding item (a rug) is free to sit under everything
+            # already placed, but must still stay in bounds and clear of door
+            # swings - a rug under a door still stops it opening.
+            if not collides:
+                return self._inside(cand) and not any(
+                    overlaps(cand, z) for z in self.blocked
+                )
+            return self._feasible(cand, placed, clearance)
+
+        # Pass 1: near the ideal anchor, best clearance first. This is where a
+        # good layout comes from - sofa on the focal wall, table in front of it.
+        for clearance in ladder:
+            for rotation in rotations:
+                w, d = effective_extents(base_w, base_d, rotation)
+                if w > self.W - 2 * self.margin or d > self.D - 2 * self.margin:
+                    continue  # cannot fit at any position in this orientation
+                for ix, iy in self._anchors(item.role, w, d, placed):
+                    for x, y in self._ring(ix, iy, w, d):
+                        if accepts(Rect(x, y, w, d), clearance):
+                            return _Placed(Rect(x, y, w, d), rotation, item, collides)
+
+        # Pass 2: anywhere it legally fits. The result is less considered, but
+        # a piece placed awkwardly still beats one dropped from the design.
+        for rotation in rotations:
+            w, d = effective_extents(base_w, base_d, rotation)
+            if w > self.W - 2 * self.margin or d > self.D - 2 * self.margin:
+                continue
+            for x, y in self._scan(w, d):
+                if accepts(Rect(x, y, w, d), 0.0):
+                    return _Placed(Rect(x, y, w, d), rotation, item, collides)
+
+        return None
+
+
+def _opposite(wall: Wall) -> Wall:
+    return {
+        Wall.NORTH: Wall.SOUTH,
+        Wall.SOUTH: Wall.NORTH,
+        Wall.EAST: Wall.WEST,
+        Wall.WEST: Wall.EAST,
+    }[wall]
+
+
+# --- selftest --------------------------------------------------------------
+
+
+def selftest() -> None:
+    """Assert the solver's invariants across roomy, tight and cramped rooms."""
+    from .seed_data import SEED_ITEMS
+
+    def pick(role: Role) -> CatalogItem:
+        return next(i for i in SEED_ITEMS if i.role is role and i.in_stock)
+
+    wishlist = [pick(r) for r in PLACEMENT_ORDER]
+
+    cases = [
+        ("roomy   400x320", 400.0, 320.0),
+        ("tight   250x200", 250.0, 200.0),
+        ("cramped 160x140", 160.0, 140.0),
+    ]
+
+    for label, w, d in cases:
+        # Measured room with known openings: the full set is placeable.
+        room = RoomAnalysis(
+            width_cm=w,
+            depth_cm=d,
+            measured=True,
+            openings=[Opening(kind="door", wall=Wall.NORTH, offset_cm=10, width_cm=80, swing_cm=80)],
+        )
+        result = LayoutSolver(room).solve(wishlist)
+
+        # Invariant 1: everything inside the room.
+        for p in result.placements:
+            assert p.x_cm >= 0 and p.y_cm >= 0, f"{label}: {p.name} outside (neg)"
+            assert p.x_cm + p.w_cm <= w + EPS, f"{label}: {p.name} exceeds width"
+            assert p.y_cm + p.d_cm <= d + EPS, f"{label}: {p.name} exceeds depth"
+
+        # Invariant 2: no overlap among colliding pieces.
+        solid = [p for p in result.placements if p.role not in NON_COLLIDING_ROLES]
+        for i, a in enumerate(solid):
+            for b in solid[i + 1 :]:
+                ra = Rect(a.x_cm, a.y_cm, a.w_cm, a.d_cm)
+                rb = Rect(b.x_cm, b.y_cm, b.w_cm, b.d_cm)
+                assert not overlaps(ra, rb), f"{label}: {a.name} overlaps {b.name}"
+
+        # Invariant 3: nothing silently vanishes.
+        assert (
+            len(result.placements) + len(result.skipped) + len(result.withheld)
+            == len(wishlist)
+        ), f"{label}: item accounting mismatch"
+
+        # Invariant 5: nothing blocks a door swing, rugs included.
+        for zone in blocked_zones(room):
+            for p in result.placements:
+                assert not overlaps(
+                    Rect(p.x_cm, p.y_cm, p.w_cm, p.d_cm), zone
+                ), f"{label}: {p.name} blocks the door"
+
+        # Invariant 4: design intent, not just legality. A coffee table must
+        # end up near the seating it serves - a legal but stranded table on the
+        # far side of the room passes the overlap test and is still wrong.
+        by_role = {p.role: p for p in result.placements}
+        table, sofa = by_role.get(Role.COFFEE_TABLE), by_role.get(Role.SOFA)
+        assert not (table and not sofa), f"{label}: table placed without seating"
+        if table and sofa:
+            gap = max(
+                0.0,
+                max(sofa.y_cm - (table.y_cm + table.d_cm), table.y_cm - (sofa.y_cm + sofa.d_cm)),
+                max(sofa.x_cm - (table.x_cm + table.w_cm), table.x_cm - (sofa.x_cm + sofa.w_cm)),
+            )
+            assert gap <= 120.0, f"{label}: table stranded {gap:.0f}cm from sofa"
+
+        print(f"{label}: {len(result.placements)} placed, {len(result.skipped)} skipped")
+        for p in sorted(result.placements, key=lambda p: p.z):
+            print(
+                f"    {p.role.value:<13} {p.name:<26} "
+                f"({p.x_cm:>6.1f},{p.y_cm:>6.1f}) {p.w_cm:>5.0f}x{p.d_cm:<5.0f} rot{p.rotation}"
+            )
+        for s in result.skipped:
+            print(f"    SKIP {s.role.value:<13} {s.name:<26} {s.reason}: {s.detail}")
+        print()
+
+    # --- precision gate ---------------------------------------------------
+    # Same room, same wishlist, differing only in how well it is measured.
+    estimated = RoomAnalysis(width_cm=400, depth_cm=320)  # measured=False
+    est = LayoutSolver(estimated).solve(wishlist)
+    exact_roles = {r for r, p in ROLE_PRECISION.items() if p is Precision.EXACT}
+
+    withheld_roles = {w.role for w in est.withheld}
+    placed_roles = {p.role for p in est.placements}
+    # Every EXACT-tier role must be withheld. The coffee table joins them by
+    # cascade - it is positioned relative to the sofa, so it waits on the same
+    # measurements rather than being stranded mid-floor.
+    assert exact_roles <= withheld_roles, (
+        f"unmeasured room must withhold {exact_roles}, withheld {withheld_roles}"
+    )
+    assert withheld_roles <= exact_roles | {Role.COFFEE_TABLE}, (
+        f"unexpected role withheld: {withheld_roles - exact_roles}"
+    )
+    assert not (placed_roles & exact_roles), "placed a wall-hugging piece unmeasured"
+    assert all(w.needs for w in est.withheld), "withheld item asks for nothing"
+    # Nothing withheld may appear in the layout.
+    assert not (withheld_roles & placed_roles), "item both withheld and placed"
+
+    measured = RoomAnalysis(width_cm=400, depth_cm=320, measured=True)
+    meas = LayoutSolver(measured).solve(wishlist)
+    assert not meas.withheld, "measured room should withhold nothing"
+    assert exact_roles <= {p.role for p in meas.placements}, (
+        "measured room should place wall-hugging pieces"
+    )
+
+    # An irregular room cannot support wall anchors even when measured.
+    lshaped = RoomAnalysis(width_cm=400, depth_cm=320, measured=True, irregular=True)
+    assert LayoutSolver(lshaped).solve(wishlist).withheld, (
+        "irregular room should withhold wall-hugging pieces"
+    )
+
+    print("precision gate:")
+    print(f"    estimated room -> {len(est.placements)} placed, "
+          f"{len(est.withheld)} withheld pending measurements")
+    for wi in est.withheld:
+        print(f"      {wi.role.value:<9} needs: {', '.join(n.field for n in wi.needs)}")
+    print(f"    measured room  -> {len(meas.placements)} placed, 0 withheld")
+    print()
+
+    # Confidence must be attached and must vary by how constrained a piece is.
+    confidences = {p.role.value: (p.confidence.value, p.tolerance_cm)
+                   for p in meas.placements}
+    assert all(c for c, _ in confidences.values()), "placement missing confidence"
+    print("confidence / tolerance:")
+    for role, (conf, tol) in confidences.items():
+        print(f"    {role:<14} {conf:<7} ±{tol:.0f}cm")
+    print()
+
+    print("all invariants hold")
+
+
+if __name__ == "__main__":
+    selftest()

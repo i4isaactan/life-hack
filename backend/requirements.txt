@@ -1,0 +1,12 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+langgraph==1.2.11
+langchain-core==1.6.1
+langchain-openai==1.6.0
+openai==3.6.0
+qdrant-client==1.19.0
+python-multipart==0.0.32
+pydantic>=2.7
+python-dotenv==1.1.1
+Pillow==12.1.0
+replicate>=1.0.0

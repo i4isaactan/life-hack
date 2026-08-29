@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.py[cod]
+.claude
+# Holds OPENAI_API_KEY when running against real providers.
+.env

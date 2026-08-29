@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoomCrafter AI — Test Client</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #6366f1; --ok: #34d399; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  header {
+    padding: 12px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  header .note { color: var(--muted); font-size: 12px; }
+  #health { margin-left: auto; font-size: 12px; color: var(--muted); }
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, button {
+    width: 100%; font: inherit; color: var(--text);
+    background: #0b1220; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  }
+  textarea { resize: vertical; min-height: 62px; }
+  button {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    font-weight: 600; cursor: pointer; margin-top: 12px;
+  }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .tag {
+    font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+    background: #0b1220; border: 1px solid var(--line); color: var(--muted); width: auto;
+  }
+  .tag.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #narrative { white-space: pre-wrap; min-height: 40px; }
+  #log {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    max-height: 220px; overflow: auto; background: #0b1220;
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px;
+  }
+  #log div { padding: 1px 0; color: var(--muted); }
+  #log .t { color: var(--accent); }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .muted { color: var(--muted); }
+  .skip { color: var(--warn); font-size: 12px; }
+  .stack { display: grid; gap: 16px; }
+  svg { width: 100%; height: auto; background: #0b1220; border-radius: 7px; }
+  .bar { height: 7px; background: #0b1220; border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .bar > i { display: block; height: 100%; background: var(--ok); }
+  .bar > i.over { background: #f87171; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RoomCrafter AI</h1>
+  <span class="note">Test client — checkout is simulated, no payment is processed.</span>
+  <span id="health">checking…</span>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Request</h2>
+    <label for="msg">Message</label>
+    <textarea id="msg">Design a calm living room for me.</textarea>
+
+    <label for="budget">Budget (USD)</label>
+    <input id="budget" type="number" value="2500" min="100" step="50">
+
+    <label for="aesthetic">Aesthetic</label>
+    <input id="aesthetic" value="Scandinavian">
+    <div class="tags" id="tags"></div>
+
+    <label for="image">Room photo (optional)</label>
+    <input id="image" type="file" accept="image/*">
+
+    <button id="send">Send</button>
+    <button id="checkout" disabled style="background:#0b1220;border-color:var(--line);color:var(--text)">
+      Simulate checkout
+    </button>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2>Floor plan</h2>
+      <div id="plan"><span class="muted">No layout yet.</span></div>
+      <div id="skipped"></div>
+    </div>
+    <div class="card">
+      <h2>Assistant</h2>
+      <div id="narrative" class="muted">Nothing yet.</div>
+    </div>
+    <div class="card">
+      <h2>Bill of materials</h2>
+      <div id="bom"><span class="muted">Empty.</span></div>
+    </div>
+    <div class="card">
+      <h2>Event log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = "http://localhost:8000";
+const $ = id => document.getElementById(id);
+let sessionId = null, cartItemIds = [];
+
+const money = c => "$" + (c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// --- aesthetic quick-tags ---
+["Scandinavian", "Japandi", "Mid-Century Modern", "Industrial", "Minimalist"].forEach(t => {
+  const b = document.createElement("button");
+  b.className = "tag"; b.textContent = t; b.type = "button";
+  b.onclick = () => { $("aesthetic").value = t; syncTags(); };
+  $("tags").appendChild(b);
+});
+function syncTags() {
+  [...$("tags").children].forEach(b =>
+    b.classList.toggle("on", b.textContent === $("aesthetic").value));
+}
+$("aesthetic").addEventListener("input", syncTags);
+syncTags();
+
+// --- health ---
+fetch(API + "/api/health").then(r => r.json()).then(h => {
+  $("health").textContent = `${h.status} · providers: ${h.providers}` +
+    (h.offline_mode ? " (offline mock)" : "");
+}).catch(() => { $("health").textContent = "backend unreachable"; });
+
+function log(kind, detail = "") {
+  const d = document.createElement("div");
+  d.innerHTML = `<span class="t">${kind}</span> ${detail}`;
+  $("log").appendChild(d);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+/**
+ * Stream an SSE response from a POST.
+ *
+ * EventSource cannot be used here: it is GET-only and cannot send
+ * multipart/form-data. This fetch + reader loop is the reference
+ * implementation for any real client.
+ */
+async function streamChat(formData, onEvent) {
+  // Do NOT set Content-Type - the browser must add the multipart boundary.
+  const res = await fetch(API + "/api/chat", { method: "POST", body: formData });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    // stream:true so a multi-byte character split across chunks is not mangled.
+    buf += decoder.decode(value, { stream: true });
+    // Normalize CRLF first: with \r\n line endings, indexOf("\n\n") never
+    // matches and the client hangs forever waiting for a frame boundary.
+    buf = buf.replace(/\r\n/g, "\n");
+
+    let i;
+    // Consume only COMPLETE frames; a partial one stays buffered for the
+    // next read, which is what makes chunk boundaries safe.
+    while ((i = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+
+      let event = "message", data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith(":")) continue;            // comment / heartbeat
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (data) {
+        try { onEvent(event, JSON.parse(data)); }
+        catch (err) { log("parse-error", String(err)); }
+      }
+    }
+  }
+}
+
+function renderPlan(layout) {
+  const { room_width_cm: W, room_depth_cm: D, placements, skipped } = layout;
+  const pad = 20;
+  const parts = [
+    `<svg viewBox="${-pad} ${-pad} ${W + pad * 2} ${D + pad * 2}">`,
+    `<defs><pattern id="g" width="50" height="50" patternUnits="userSpaceOnUse">
+       <path d="M50 0H0V50" fill="none" stroke="#1e293b" stroke-width="1"/></pattern></defs>`,
+    `<rect x="0" y="0" width="${W}" height="${D}" fill="url(#g)" stroke="#475569" stroke-width="3"/>`,
+  ];
+  // z ascending so rugs (z=0) render beneath the furniture that sits on them.
+  [...placements].sort((a, b) => a.z - b.z).forEach(p => {
+    const r = p.role === "floor_lamp" ? Math.min(p.w_cm, p.d_cm) / 2 : 6;
+    parts.push(
+      `<rect x="${p.x_cm}" y="${p.y_cm}" width="${p.w_cm}" height="${p.d_cm}" rx="${r}"
+         fill="${p.swatch}" fill-opacity="${p.z === 0 ? 0.35 : 0.9}"
+         stroke="#0f172a" stroke-width="2"><title>${p.name} — ${money(p.price_cents)}</title></rect>`,
+      `<text x="${p.x_cm + p.w_cm / 2}" y="${p.y_cm + p.d_cm / 2}" fill="#0f172a"
+         font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle"
+         >${p.role.replace(/_/g, " ")}</text>`
+    );
+  });
+  parts.push(
+    `<text x="${W / 2}" y="${-6}" fill="#94a3b8" font-size="14" text-anchor="middle"
+      >${(W / 100).toFixed(1)}m × ${(D / 100).toFixed(1)}m</text></svg>`
+  );
+  $("plan").innerHTML = parts.join("");
+
+  $("skipped").innerHTML = (skipped && skipped.length)
+    ? `<div class="skip" style="margin-top:8px"><strong>Not placed:</strong> ` +
+      skipped.map(s => `${s.name} — ${s.detail || s.reason}`).join("; ") + `</div>`
+    : "";
+}
+
+function renderCart(cart) {
+  cartItemIds = cart.lines.map(l => l.item_id);
+  $("checkout").disabled = cartItemIds.length === 0;
+  if (!cart.lines.length) { $("bom").innerHTML = `<span class="muted">Empty.</span>`; return; }
+
+  const pct = cart.budget_cents ? Math.min(100, cart.subtotal_cents / cart.budget_cents * 100) : 0;
+  const over = cart.subtotal_cents > cart.budget_cents;
+  $("bom").innerHTML =
+    cart.lines.map(l => `
+      <div class="row">
+        <span>${l.name}<br><span class="muted" style="font-size:12px">${l.merchant}</span></span>
+        <span>${money(l.price_cents)}</span>
+      </div>`).join("") +
+    `<div class="row" style="border-top:1px solid var(--line);margin-top:6px">
+       <strong>Total</strong>
+       <strong style="color:${over ? "#f87171" : "var(--ok)"}">${money(cart.subtotal_cents)}</strong>
+     </div>
+     <div class="muted" style="font-size:12px">of ${money(cart.budget_cents)} budget</div>
+     <div class="bar"><i class="${over ? "over" : ""}" style="width:${pct}%"></i></div>`;
+}
+
+$("send").onclick = async () => {
+  $("send").disabled = true;
+  $("log").innerHTML = "";
+  $("narrative").textContent = "";
+  $("narrative").className = "";
+  let narrative = "";
+
+  const fd = new FormData();
+  fd.append("message", $("msg").value);
+  fd.append("budget", $("budget").value);
+  fd.append("aesthetic", $("aesthetic").value);
+  if (sessionId) fd.append("session_id", sessionId);
+  if ($("image").files[0]) fd.append("image", $("image").files[0]);
+
+  try {
+    await streamChat(fd, (event, data) => {
+      switch (event) {
+        case "text_delta":
+          narrative += data.text;
+          $("narrative").textContent = narrative;
+          break;
+        case "room_analysis":
+          log("room_analysis", `${data.room.width_cm}×${data.room.depth_cm}cm · ${data.room.source}`);
+          break;
+        case "layout_update":
+          log("layout_update", `${data.layout.placements.length} placed, ${data.layout.skipped.length} skipped`);
+          renderPlan(data.layout);
+          break;
+        case "cart_update":
+          log("cart_update", `${data.cart.lines.length} lines · ${money(data.cart.subtotal_cents)}`);
+          renderCart(data.cart);
+          break;
+        case "error":
+          log("error", data.message);
+          break;
+        case "done":
+          sessionId = data.session_id;
+          log("done", `${data.elapsed_ms}ms · session ${data.session_id}`);
+          break;
+        default:
+          log(event);
+      }
+    });
+  } catch (err) {
+    log("failed", String(err));
+    $("narrative").textContent = "Request failed: " + err.message;
+  } finally {
+    // `done` always fires, but unlock on any exit so the UI never wedges.
+    $("send").disabled = false;
+  }
+};
+
+$("checkout").onclick = async () => {
+  $("checkout").disabled = true;
+  try {
+    const res = await fetch(API + "/api/checkout/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_ids: cartItemIds, session_id: sessionId }),
+    });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.detail || res.status);
+    log("checkout", `${r.order_id} · ${r.groups.length} merchant(s) · ${money(r.total_cents)}`);
+    alert(
+      `${r.disclaimer}\n\nOrder ${r.order_id}\nToken ${r.payment_token}\n\n` +
+      r.groups.map(g => `${g.merchant}: ${money(g.subtotal_cents)}`).join("\n") +
+      `\n\nTotal ${money(r.total_cents)}`
+    );
+  } catch (err) {
+    log("checkout-failed", String(err));
+  } finally {
+    $("checkout").disabled = cartItemIds.length === 0;
+  }
+};
+</script>
+</body>
+</html>
