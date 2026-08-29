@@ -555,7 +555,11 @@ class LayoutSolver:
 
     def _place_one(self, item: CatalogItem, placed: list[_Placed]) -> _Placed | None:
         collides = item.role not in NON_COLLIDING_ROLES
-        rotations: list[Rotation] = [0, 90] if item.role is not Role.RUG else [0]
+        # Every role may turn, rugs included: a 220x155 rug laid the other way
+        # round is the same rug, and refusing the rotation drops it from a room
+        # it plainly fits. Rotation only swaps extents, so the rug's own anchor
+        # (centred) is unaffected.
+        rotations: list[Rotation] = [0, 90]
         base_w = item.dimensions.width_cm
         base_d = item.dimensions.depth_cm
 

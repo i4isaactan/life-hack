@@ -47,6 +47,49 @@ CORS_ORIGINS = [
     "null",
 ]
 
+# --- Visa Agentic Payments Stack -------------------------------------------
+#
+# The WebAuthn relying party. RP_ID is a *domain*, never an origin: it carries
+# no scheme and no port, and a credential created for one RP ID cannot be used
+# by another. That is the property that makes a passkey unphishable, so it is
+# configuration rather than something derived from an incoming request - a
+# server that trusted the Host header here would let an attacker nominate
+# their own relying party.
+WEBAUTHN_RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
+WEBAUTHN_RP_NAME = os.getenv("WEBAUTHN_RP_NAME", "Room Hack")
+
+# Origins whose passkey assertions we accept. Distinct from CORS_ORIGINS,
+# which governs who may call the API; this governs what the *authenticator*
+# signed over, and widening it wrongly is what turns a passkey back into a
+# password. "null" is deliberately absent: a file:// page has no origin, and
+# accepting an unauthenticated one would defeat the check entirely.
+WEBAUTHN_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "WEBAUTHN_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:8080,http://127.0.0.1:8080",
+    ).split(",")
+    if o.strip()
+]
+
+# Default mandate the UI offers when a user first grants agent authority.
+# Deliberately modest: a default the user does not think about should be the
+# small one, and raising it is a decision they make explicitly.
+DEFAULT_AGENT_PER_TXN_CAP_CENTS = int(
+    os.getenv("DEFAULT_AGENT_PER_TXN_CAP_CENTS", "200000")
+)
+DEFAULT_AGENT_TOTAL_CAP_CENTS = int(
+    os.getenv("DEFAULT_AGENT_TOTAL_CAP_CENTS", "500000")
+)
+DEFAULT_AGENT_MANDATE_HOURS = int(os.getenv("DEFAULT_AGENT_MANDATE_HOURS", "24"))
+
+# Hard ceiling on any mandate, whatever the client asks for. Without it the
+# caps are entirely client-declared: an agent could request a mandate far
+# larger than the user would ever approve, and the only thing standing in the
+# way would be the UI it is bypassing.
+MAX_AGENT_MANDATE_CENTS = int(os.getenv("MAX_AGENT_MANDATE_CENTS", "1000000"))
+
 # Base64 inflates payloads by ~33%, so an 8MB file becomes ~11MB in memory.
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 # Room analysis does not need full phone-camera resolution; downscaling cuts
@@ -177,11 +220,31 @@ IMAGE_FETCH_MAX_BYTES = int(os.getenv("IMAGE_FETCH_MAX_BYTES", str(8 * 1024 * 10
 # the catalog today, but it is data rather than code: an allowlist keeps a
 # future catalog edit or a scrape of a different site from turning the server
 # into an open fetcher for arbitrary URLs.
+# Castlery serves its product photography from Cloudinary rather than its own
+# domain, so the CDN host is what has to be allowed - `castlery.com` never
+# appears in an image_url. Cloudinary is multi-tenant, so this is a broader
+# grant than the IKEA entries: it permits any Cloudinary-hosted image, not
+# only Castlery's. That is acceptable because the fetch is still bounded by
+# IMAGE_FETCH_MAX_BYTES and the timeout, and the URLs come from our own
+# scrape - but it is the reason to keep this list short and reviewed.
 IMAGE_FETCH_ALLOWED_HOSTS = tuple(
     h.strip().lower()
-    for h in os.getenv("IMAGE_FETCH_ALLOWED_HOSTS", "www.ikea.com,ikea.com").split(",")
+    for h in os.getenv(
+        "IMAGE_FETCH_ALLOWED_HOSTS",
+        "www.ikea.com,ikea.com,res.cloudinary.com",
+    ).split(",")
     if h.strip()
 )
 # Renders run concurrently, but a burst of parallel GPU calls is the fastest
 # way to hit a rate limit, so keep it modest.
 RENDER_CONCURRENCY = int(os.getenv("RENDER_CONCURRENCY", "2"))
+
+
+# --- Reverse image search ---------------------------------------------------
+# When a match is close enough to say "this looks like the LANDSKRONA" rather
+# than "here are the nearest sofas we sell". The two bars differ because the
+# score scales differ: CLIP image-to-text cosines cluster around 0.2-0.35 and
+# essentially never reach 0.6, while text-to-text similarity runs much higher.
+# A single threshold would make one signal permanently unconfident.
+REVERSE_IMAGE_CONFIDENT_AT = float(os.getenv("REVERSE_IMAGE_CONFIDENT_AT", "0.75"))
+REVERSE_TEXT_CONFIDENT_AT = float(os.getenv("REVERSE_TEXT_CONFIDENT_AT", "0.62"))

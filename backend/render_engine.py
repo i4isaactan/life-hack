@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 from . import config
 from .geometry import FloorProjection, ProjectionError
-from .rag_engine import role_for_label
+from .rag_engine import _clamp01, role_for_label
 from .models import (
     DimensionSource,
     CatalogItem,
@@ -223,9 +223,18 @@ class RenderProvider:
             )
             for det, mask in zip(targets, masks):
                 det.mask_b64 = mask
-            combined = self._merge_masks(
-                image_b64, [m for m in masks if m], config.MASK_DILATE_PX
-            )
+            kept = [m for m in masks if m]
+            # Every segmentation failed, so there is nothing to erase. Calling
+            # LaMa with an all-black mask spends a prediction to get the photo
+            # back unchanged, and returning erased=True would tell the client
+            # the room was cleared while every render still shows the old
+            # furniture behind the new piece.
+            if not kept:
+                log.warning("no masks produced, using the photo unerased")
+                return RoomPlate(
+                    plate_b64=image_b64, detections=detections, erased=False
+                )
+            combined = self._merge_masks(image_b64, kept, config.MASK_DILATE_PX)
             plate = await self._erase(image_b64, combined)
             return RoomPlate(plate_b64=plate, detections=detections, erased=True)
         except Exception as exc:
@@ -244,7 +253,10 @@ class RenderProvider:
     ) -> RenderResult | RenderFailure:
         """Render one catalog item into the plate at its solved position."""
         started = time.perf_counter()
-        base = _decode(plate.plate_b64)
+        # Base64 + JPEG decode of a full-resolution photo is tens of
+        # milliseconds of pure CPU. On the event loop it blocks every other
+        # render and stalls the SSE heartbeats that keep the connection open.
+        base = await asyncio.to_thread(_decode, plate.plate_b64)
 
         try:
             box = projection.item_box(
@@ -271,7 +283,13 @@ class RenderProvider:
 
         if self._client is None:
             try:
-                image = self._schematic(base, placement, item, projection)
+                # The whole offline workload: RGBA copy, overlay allocation,
+                # polygon fills and an alpha composite over a 1024px image.
+                # Threaded so RENDER_CONCURRENCY actually buys concurrency
+                # instead of serializing on the loop.
+                image = await asyncio.to_thread(
+                    self._schematic, base, placement, item, projection
+                )
             except ProjectionError as exc:
                 return RenderFailure(
                     item_id=item.id,
@@ -416,17 +434,34 @@ class RenderProvider:
             box = raw.get("bbox") or raw.get("box")
             if not box or len(box) != 4:
                 continue
-            # Grounding DINO returns pixels; everything downstream is normalized.
-            x1, y1, x2, y2 = (float(v) for v in box)
+            # Grounding DINO returns pixels; everything downstream is
+            # normalized. Parsed defensively for the same reasons as
+            # rag_engine._parse_detections: a null or out-of-range confidence
+            # would fail Detection's [0,1] validation and abort the whole
+            # loop, and prepare_plate swallows that - so one bad box would
+            # silently skip erasing for the entire photo.
+            try:
+                x1, y1, x2, y2 = (float(v) for v in box)
+            except (TypeError, ValueError):
+                continue
+            x1, x2 = sorted((_clamp01(x1 / W), _clamp01(x2 / W)))
+            y1, y2 = sorted((_clamp01(y1 / H), _clamp01(y2 / H)))
+            # A zero-area box segments to nothing and would waste a SAM 2 call.
+            if x2 - x1 <= 0.0 or y2 - y1 <= 0.0:
+                continue
+            try:
+                score = _clamp01(raw.get("confidence", raw.get("score", 0.0)) or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
             detections.append(
                 Detection(
                     role=role,
                     label=label,
-                    score=float(raw.get("confidence", raw.get("score", 0.0))),
-                    x1=max(0.0, min(x1 / W, 1.0)),
-                    y1=max(0.0, min(y1 / H, 1.0)),
-                    x2=max(0.0, min(x2 / W, 1.0)),
-                    y2=max(0.0, min(y2 / H, 1.0)),
+                    score=score,
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
                 )
             )
         return detections
@@ -1067,7 +1102,7 @@ async def render_layout(
     # of GPU calls is the quickest way to a rate limit.
     semaphore = asyncio.Semaphore(max(1, config.RENDER_CONCURRENCY))
 
-    async def one(p: Placement):
+    async def _render_one(p: Placement):
         item = items.get(p.item_id)
         if item is None:
             return RenderFailure(
@@ -1077,14 +1112,24 @@ async def render_layout(
                 reason="not_placed",
                 detail="item is no longer in the catalog",
             )
+        return await provider.render_item(plate, p, item, room, projection)
+
+    async def one(p: Placement):
+        # The semaphore wraps the whole call, including render_item's own
+        # decode. Acquiring it further in would let every task run its setup
+        # immediately, which is most of the work on the offline path.
         async with semaphore:
-            return await provider.render_item(plate, p, item, room, projection)
+            return await _render_one(p)
 
     # Painter's order: rugs first, then back of the room to front, so a piece
     # nearer the camera occludes one behind it. Renders are dispatched
     # concurrently but yielded in this order, which costs nothing in wall-clock
     # (they overlap regardless) and lets a client composite by arrival.
-    ordered = sorted(placements, key=lambda p: (p.z, -(p.y_cm + p.d_cm)))
+    #
+    # Ascending on the back edge (y_cm + d_cm): the piece deepest in the room
+    # is emitted first and a nearer one paints over it. Negating this reverses
+    # the occlusion and draws the far sofa on top of the near coffee table.
+    ordered = sorted(placements, key=lambda p: (p.z, p.y_cm + p.d_cm))
     tasks = [asyncio.create_task(one(p)) for p in ordered]
     try:
         for task in tasks:
@@ -1139,9 +1184,11 @@ def selftest() -> None:
             pa, pb = by_id[a.item_id], by_id[b.item_id]
             if pa.z < pb.z:
                 assert order[a.item_id] < order[b.item_id], "z order violated"
-            elif pa.z == pb.z and (pa.y_cm + pa.d_cm) > (pb.y_cm + pb.d_cm):
+            elif pa.z == pb.z and (pa.y_cm + pa.d_cm) < (pb.y_cm + pb.d_cm):
+                # a sits further back, so it must render first and be painted
+                # over by b rather than the other way round.
                 assert order[a.item_id] < order[b.item_id], (
-                    f"{a.name} is nearer than {b.name} but renders first"
+                    f"{a.name} is further back than {b.name} but renders second"
                 )
 
     # 3. A render never claims more confidence than its inputs support. An
@@ -1299,7 +1346,13 @@ async def render_room(
     # Replicate token it would find nothing at all and silently drop the
     # removal hints. Best-effort: with no detections we simply do not mention
     # it, and the model is told to furnish the room rather than clear it.
-    replaced = [d.label for d in room.detections]
+    #
+    # Only `replaceable` - the detections mapping onto a role we sell. The rest
+    # are the user's bookshelf, bed or TV unit: nothing here can replace them,
+    # so asking the model to erase them would delete possessions and put
+    # nothing back. This matches the per-item path, which filters the same set
+    # through _ERASE_EXCLUDED.
+    replaced = [d.label for d in room.replaceable]
 
     try:
         return await provider.composer.compose(

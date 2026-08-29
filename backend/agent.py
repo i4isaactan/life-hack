@@ -170,7 +170,7 @@ def build_graph(
             writer(
                 {
                     "type": "text_delta",
-                    "text": f"Adjusting the budget to ${intent.budget_cents / 100:,.0f}. ",
+                    "text": f"Adjusting the budget to S${intent.budget_cents / 100:,.0f}. ",
                 }
             )
         if intent.aesthetic:
@@ -273,7 +273,9 @@ def build_graph(
 
     def analyze_room(state: GraphState) -> dict[str, Any]:
         writer = get_stream_writer()
-        writer({"type": "text_delta", "text": "Analyzing your room… "})
+        # No "Analyzing your room…" here: the client renders a thinking
+        # trace off the stage events themselves, so narrating the stage in
+        # prose repeats it. What the analysis FOUND is still reported below.
         room = vision.analyze(state.get("image_b64"))
 
         # User-supplied measurements always beat an estimate from a photo, and
@@ -291,7 +293,6 @@ def build_graph(
         if cached is not None:
             room = room.model_copy(update={"detections": list(cached)})
         elif state.get("image_b64"):
-            writer({"type": "text_delta", "text": "and what's already in it… "})
             found = detections_for.detect(state.get("image_b64"))
             room = room.model_copy(update={"detections": found})
 
@@ -336,7 +337,6 @@ def build_graph(
 
     def retrieve_items(state: GraphState) -> dict[str, Any]:
         writer = get_stream_writer()
-        writer({"type": "text_delta", "text": "Searching the catalog… "})
 
         room = state["room"]
         budget = state.get("budget_cents") or config.DEFAULT_BUDGET_CENTS
@@ -475,7 +475,6 @@ def build_graph(
 
     def solve_layout(state: GraphState) -> dict[str, Any]:
         writer = get_stream_writer()
-        writer({"type": "text_delta", "text": "Laying out the floor plan… "})
         layout = LayoutSolver(state["room"]).solve(state.get("selected", []))
         writer({"type": "layout_update", "layout": layout.model_dump(mode="json")})
 
@@ -546,10 +545,12 @@ def build_graph(
             for item in state.get("selected", [])
             if item.id in placed_ids
         ]
+        selected = state.get("selected", [])
         cart = Cart(
             lines=lines,
             subtotal_cents=sum(line.line_total_cents for line in lines),
             budget_cents=budget,
+            currency=selected[0].currency if selected else Cart.model_fields["currency"].default,
         )
         writer(
             {
@@ -609,14 +610,14 @@ def build_graph(
             {
                 "type": "text_delta",
                 "text": f"\n\nI placed {n} piece{'s' if n != 1 else ''} "
-                f"totalling ${total:,.2f} against your ${budget:,.0f} budget. ",
+                f"totalling S${total:,.2f} against your S${budget:,.0f} budget. ",
             }
         )
         for p in sorted(layout.placements, key=lambda p: PLACEMENT_ORDER.index(p.role)):
             writer(
                 {
                     "type": "text_delta",
-                    "text": f"\n• {p.name} ({p.merchant}) — ${p.price_cents/100:,.2f}",
+                    "text": f"\n• {p.name} ({p.merchant}) — S${p.price_cents/100:,.2f}",
                 }
             )
         if layout.skipped:

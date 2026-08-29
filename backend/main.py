@@ -7,6 +7,7 @@ than built. It is documented in README.md and mirrored by test_client.html.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -22,8 +23,16 @@ from fastapi.responses import StreamingResponse
 from . import config
 from .agent import GraphState, build_graph
 from .models import (
+    AgentTokenSummary,
+    MandateScope,
+    PasskeyAssertionRequest,
+    PasskeyCredentialSummary,
+    PasskeyRegistrationRequest,
+    ProvisionTokenRequest,
+    RevokeMandateRequest,
     AuthorizationReceipt,
     Detection,
+    Role,
     AuthorizeRequest,
     Cart,
     CartLine,
@@ -47,6 +56,8 @@ from .models import (
     VerifyRequest,
 )
 from . import payments
+from . import vts
+from . import webauthn
 from .rag_engine import (
     CatalogIndex,
     DetectionProvider,
@@ -354,6 +365,16 @@ async def chat(
         if isinstance(prior_layout_raw, dict)
         else prior_layout_raw
     )
+
+    # A turn with no new upload reuses the photo already on the session, so a
+    # follow-up like "make it cheaper" still analyses the user's real room.
+    # Without this the graph re-runs with no image at all and the room silently
+    # reverts to default dimensions, losing the detections and existing-style
+    # signal the first turn paid for.
+    if image_b64 is None:
+        stored = prior_ctx.get("image_b64")
+        if isinstance(stored, str) and stored:
+            image_b64 = stored
 
     # Detections cached from a previous turn on this session, reusable only
     # while the photo they describe is still the current one. Detection is a
@@ -784,6 +805,7 @@ async def swap(req: SwapRequest) -> StreamingResponse:
             lines=lines,
             subtotal_cents=sum(line.line_total_cents for line in lines),
             budget_cents=budget_cents,
+            currency=updated[0].currency if updated else Cart.model_fields["currency"].default,
         )
         yield sse_frame(
             "cart_update",
@@ -1024,6 +1046,7 @@ async def payment_intent(req: PaymentIntentRequest) -> PaymentIntent:
             budget_cents=budget_cents,
             payment_method_ids=req.payment_method_ids,
             initiated_by="agent",
+            mandate_credential=req.mandate_credential,
         )
     except payments.PaymentError as exc:
         raise _payment_error(exc) from exc
@@ -1070,7 +1093,10 @@ async def payment_authorize(req: AuthorizeRequest) -> AuthorizationReceipt:
         raise HTTPException(400, "idempotency_key required")
     try:
         return payments.authorize(
-            req.intent_id, req.idempotency_key, req.confirmed_total_cents
+            req.intent_id,
+            req.idempotency_key,
+            req.confirmed_total_cents,
+            assertion_id=req.assertion_id,
         )
     except payments.PaymentError as exc:
         raise _payment_error(exc) from exc
@@ -1086,6 +1112,305 @@ async def payment_cancel(body: dict) -> PaymentIntent:
         return payments.cancel_intent(intent_id)
     except payments.PaymentError as exc:
         raise _payment_error(exc) from exc
+
+
+# --- Visa Agentic Payments Stack -------------------------------------------
+#
+# Three groups of endpoints, one per layer of the stack:
+#
+#   /api/passkey/*   FIDO2 registration and assertion. Proves the cardholder
+#                    is physically present, via a device biometric bound to a
+#                    hardware-held key. No biometric data ever reaches here.
+#   /api/agent-token/*  Visa Token Service. Enrolls a card and mints a scoped
+#                    AI_AGENT token so the agent spends against a revocable
+#                    token rather than a card number.
+#   revoke           The kill switch. Ends the agent's authority without
+#                    touching the underlying card.
+
+
+def _webauthn_error(exc: webauthn.WebAuthnError) -> HTTPException:
+    return HTTPException(exc.status, exc.detail)
+
+
+def _mandate_error(exc: vts.MandateViolation) -> HTTPException:
+    return HTTPException(exc.status, exc.detail)
+
+
+def _credential_summary(c: webauthn.StoredCredential) -> PasskeyCredentialSummary:
+    return PasskeyCredentialSummary(
+        credential_id=c.credential_id,
+        label=c.label,
+        created_at=c.created_at,
+        sign_count=c.sign_count,
+        backed_up=c.backed_up,
+        transports=c.transports,
+    )
+
+
+@app.get("/api/passkey/credentials", response_model=list[PasskeyCredentialSummary])
+async def passkey_credentials() -> list[PasskeyCredentialSummary]:
+    """Passkeys registered on this account. Public metadata only."""
+    return [_credential_summary(c) for c in webauthn.list_credentials()]
+
+
+@app.post("/api/passkey/register/options")
+async def passkey_register_options(body: dict | None = None) -> dict:
+    """Options for navigator.credentials.create().
+
+    The challenge is minted server-side and single-use, so the browser cannot
+    choose what it signs over.
+    """
+    body = body or {}
+    return webauthn.registration_options(
+        rp_id=config.WEBAUTHN_RP_ID,
+        rp_name=config.WEBAUTHN_RP_NAME,
+        user_id=str(body.get("user_id") or "roomhack-demo-user"),
+        user_name=str(body.get("user_name") or "demo@roomhack.local"),
+        user_display=str(body.get("user_display") or "Room Hack demo"),
+    )
+
+
+@app.post("/api/passkey/register", response_model=PasskeyCredentialSummary)
+async def passkey_register(req: PasskeyRegistrationRequest) -> PasskeyCredentialSummary:
+    """Verify a create() response and store the public key."""
+    try:
+        credential = webauthn.verify_registration(
+            credential_id=req.credential_id,
+            client_data_json_b64=req.client_data_json,
+            attestation_object_b64=req.attestation_object,
+            transports=req.transports,
+            label=req.label,
+            rp_id=config.WEBAUTHN_RP_ID,
+            allowed_origins=config.WEBAUTHN_ORIGINS,
+        )
+    except webauthn.WebAuthnError as exc:
+        raise _webauthn_error(exc) from exc
+    return _credential_summary(credential)
+
+
+@app.delete("/api/passkey/credentials/{credential_id}")
+async def passkey_delete(credential_id: str) -> dict:
+    """Remove a passkey. Any agent token it provisioned keeps its own mandate,
+    which is revoked separately - the two are deliberately independent."""
+    if not webauthn.delete_credential(credential_id):
+        raise HTTPException(404, "unknown passkey")
+    return {"deleted": credential_id}
+
+
+@app.post("/api/passkey/challenge")
+async def passkey_challenge(body: dict) -> dict:
+    """Options for navigator.credentials.get(), bound to one transaction.
+
+    The amount is baked into the challenge record server-side, so a signature
+    obtained for one total cannot authorize a different one. Passing the
+    amount here is not the client asserting what it will pay - the intent
+    already fixed that - it is the client naming which payment it is asking
+    the user to approve.
+    """
+    purpose = str(body.get("purpose") or "payment")
+    intent_id = body.get("intent_id")
+    amount_cents = 0
+
+    if purpose == "payment":
+        if not intent_id:
+            raise HTTPException(400, "intent_id required for a payment challenge")
+        try:
+            intent = payments.get_intent(str(intent_id))
+        except payments.PaymentError as exc:
+            raise _payment_error(exc) from exc
+        # Bind to the SERVER's total, never a client-supplied one. Otherwise a
+        # client could request a challenge for a small amount, have the user
+        # approve that, and present the signature against a larger intent.
+        amount_cents = intent.total_cents
+
+    try:
+        return webauthn.authentication_options(
+            rp_id=config.WEBAUTHN_RP_ID,
+            intent_id=str(intent_id) if intent_id else None,
+            amount_cents=amount_cents,
+            purpose=purpose,
+        )
+    except webauthn.WebAuthnError as exc:
+        raise _webauthn_error(exc) from exc
+
+
+@app.post("/api/passkey/verify")
+async def passkey_verify(req: PasskeyAssertionRequest) -> dict:
+    """Verify a get() response - the moment "it is really them" is proven.
+
+    Returns an assertion id, not a session: it is single-use, expires in
+    minutes, and is bound to one intent and one amount.
+    """
+    amount_cents = 0
+    if req.purpose == "payment":
+        if not req.intent_id:
+            raise HTTPException(400, "intent_id required")
+        try:
+            intent = payments.get_intent(req.intent_id)
+        except payments.PaymentError as exc:
+            raise _payment_error(exc) from exc
+        amount_cents = intent.total_cents
+
+    try:
+        result = webauthn.verify_assertion(
+            credential_id=req.credential_id,
+            client_data_json_b64=req.client_data_json,
+            authenticator_data_b64=req.authenticator_data,
+            signature_b64=req.signature,
+            rp_id=config.WEBAUTHN_RP_ID,
+            allowed_origins=config.WEBAUTHN_ORIGINS,
+            purpose=req.purpose,
+            intent_id=req.intent_id,
+            amount_cents=amount_cents,
+        )
+    except webauthn.WebAuthnError as exc:
+        raise _webauthn_error(exc) from exc
+
+    if req.purpose == "payment" and req.intent_id:
+        payments.record_assertion(result, req.intent_id, amount_cents, purpose="payment")
+        # Clear the step-up so the intent is confirmable. The passkey is the
+        # stronger factor, so it satisfies a requirement an OTP would have.
+        try:
+            intent = payments.get_intent(req.intent_id)
+            if intent.status == PaymentIntentStatus.REQUIRES_VERIFICATION:
+                intent.status = PaymentIntentStatus.REQUIRES_CONFIRMATION
+        except payments.PaymentError:  # pragma: no cover - defensive
+            pass
+    else:
+        # A provisioning assertion is banked too, so token minting can demand
+        # the same proof of presence a payment does - tagged with its purpose
+        # so it can never be spent as approval for a payment, or vice versa.
+        payments.record_assertion(
+            result, f"provisioning:{result.assertion_id}", 0, purpose="provisioning"
+        )
+
+    return {
+        "assertion_id": result.assertion_id,
+        "credential_id": result.credential_id,
+        "user_verified": result.user_verified,
+        "verified_at": result.verified_at,
+        "amount_cents": result.amount_cents,
+        "intent_id": result.intent_id,
+    }
+
+
+def _token_summary(token: vts.NetworkToken) -> AgentTokenSummary:
+    method = payments.get_method(token.funding_method_id)
+    mandate = token.mandate
+    return AgentTokenSummary(
+        token_id=token.token_id,
+        funding_method_id=token.funding_method_id,
+        funding_display=method.display if method else "",
+        token_last4=token.token_last4,
+        presentation_type=token.presentation_type.value,  # type: ignore[arg-type]
+        status=token.status.value,  # type: ignore[arg-type]
+        mandate_id=mandate.id,
+        scope=MandateScope(
+            per_transaction_cap_cents=mandate.per_transaction_cap_cents,
+            cumulative_cap_cents=mandate.cumulative_cap_cents,
+            spent_cents=mandate.spent_cents,
+            remaining_cents=mandate.remaining_cents,
+            allowed_mccs=sorted(mandate.allowed_mccs),
+            allowed_merchants=sorted(mandate.allowed_merchants),
+            max_merchants_per_transaction=mandate.max_merchants_per_transaction,
+            require_user_presence=mandate.require_user_presence,
+            expires_at=mandate.expires_at,
+        ),
+        created_at=token.created_at,
+        revoked_at=mandate.revoked_at,
+        revocation_reason=mandate.revocation_reason,
+        assurance_level=token.assurance_level,
+        assurance_method=token.assurance_method,
+        uses=mandate.uses,
+    )
+
+
+@app.get("/api/agent-token/defaults")
+async def agent_token_defaults() -> dict:
+    """What the mandate dialog should suggest before the user adjusts it."""
+    return {
+        "per_transaction_cap_cents": config.DEFAULT_AGENT_PER_TXN_CAP_CENTS,
+        "cumulative_cap_cents": config.DEFAULT_AGENT_TOTAL_CAP_CENTS,
+        "ttl_hours": config.DEFAULT_AGENT_MANDATE_HOURS,
+        "category_label": "Furniture & Home Decor",
+        "allowed_mccs": sorted(vts.HOME_CATEGORY_MCCS),
+        "known_merchant_mccs": vts.MERCHANT_MCC,
+    }
+
+
+@app.get("/api/agent-token", response_model=list[AgentTokenSummary])
+async def agent_tokens() -> list[AgentTokenSummary]:
+    """Every agent token, live or revoked. The revoked ones stay listed
+    because a spending history the user cannot audit after revoking is not
+    much of an audit trail."""
+    return [_token_summary(t) for t in vts.list_tokens()]
+
+
+@app.post("/api/agent-token/provision")
+async def agent_token_provision(req: ProvisionTokenRequest) -> dict:
+    """Enroll a card into the token service and mint a scoped AI_AGENT token.
+
+    Requires a fresh passkey assertion. Granting standing spending authority
+    is at least as sensitive as any single purchase it later permits, so it
+    demands the same proof that the cardholder is present.
+
+    Returns the mandate credential exactly once. It is a bearer credential:
+    whoever holds it can spend within its scope, and nothing wider.
+    """
+    method = payments.get_method(req.funding_method_id)
+    if method is None:
+        raise HTTPException(404, "unknown payment method")
+
+    if webauthn.CREDENTIALS:
+        if not req.assertion_id:
+            raise HTTPException(
+                401,
+                "verify with Face ID / Touch ID before granting the agent a mandate",
+            )
+        try:
+            payments.consume_provisioning_assertion(req.assertion_id)
+        except payments.PaymentError as exc:
+            raise _payment_error(exc) from exc
+        assurance = "fido2_device_biometric"
+    else:
+        # No authenticator on this device. The token is still scoped, but its
+        # assurance level records honestly that no biometric backed it.
+        assurance = "none"
+
+    try:
+        token, credential = vts.provision_token(
+            funding_method_id=req.funding_method_id,
+            per_transaction_cap_cents=req.per_transaction_cap_cents,
+            cumulative_cap_cents=req.cumulative_cap_cents,
+            allowed_merchants=frozenset(req.allowed_merchants),
+            max_merchants_per_transaction=req.max_merchants_per_transaction,
+            ttl_seconds=req.ttl_hours * 3600,
+            assurance_method=assurance,
+        )
+    except vts.MandateViolation as exc:
+        raise _mandate_error(exc) from exc
+
+    method.tokenized = True
+    return {
+        "token": _token_summary(token).model_dump(),
+        # Shown once, held by the agent thereafter.
+        "mandate_credential": credential,
+    }
+
+
+@app.post("/api/agent-token/revoke", response_model=AgentTokenSummary)
+async def agent_token_revoke(req: RevokeMandateRequest) -> AgentTokenSummary:
+    """Revoke the agent's spending mandate. THE CARD IS UNAFFECTED.
+
+    Deliberately requires no step-up. Taking authority away should always be
+    easier than granting it - a revocation gated behind a biometric is one a
+    user cannot perform in the moment they most need to.
+    """
+    try:
+        token = vts.revoke_token(req.token_id, req.reason)
+    except vts.MandateViolation as exc:
+        raise _mandate_error(exc) from exc
+    return _token_summary(token)
 
 
 
@@ -1189,6 +1514,64 @@ async def detect(
             _rewrite_image_urls(r.model_dump(mode="json")) for r in results
         ],
     }
+
+
+@app.post("/api/shop-the-look")
+async def shop_the_look(
+    image: UploadFile = File(...),
+    role: str = Form(""),
+    caption: str = Form(""),
+    limit: int = Form(5),
+) -> dict:
+    """Find catalog items that look like the uploaded object.
+
+    The image is the query, not a description of it: CLIP ranks against the
+    product photographs, so silhouette and material match directly. Upload a
+    crop of one piece of furniture, not a whole room - a wide shot averages
+    every object in it into one vector and matches nothing in particular.
+
+    `caption` and `role` are optional. A role narrows the search to that
+    category; a caption adds a text signal fused with the image one.
+    """
+    index = STATE.get("index")
+    if index is None:
+        raise HTTPException(503, "catalog is still seeding")
+
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(400, "empty image")
+    if len(raw) > config.MAX_IMAGE_BYTES:
+        raise HTTPException(
+            413, f"image exceeds {config.MAX_IMAGE_BYTES // (1024 * 1024)}MB limit"
+        )
+
+    parsed_role: Role | None = None
+    if role:
+        try:
+            parsed_role = Role(role)
+        except ValueError:
+            raise HTTPException(422, f"unknown role {role!r}")
+
+    det = Detection(
+        role=parsed_role,
+        label=role or "furniture",
+        score=1.0,
+        # The whole upload is the object: the caller cropped it, so there is no
+        # sub-box to report.
+        x1=0.0, y1=0.0, x2=1.0, y2=1.0,
+        caption=caption,
+    )
+    result = await asyncio.to_thread(
+        index.search_by_detection,
+        det,
+        max(1, min(limit, 20)),
+        base64.b64encode(raw).decode(),
+    )
+    payload = result.model_dump(mode="json")
+    payload["image_search"] = bool(
+        getattr(index, "_image_vectors", None) and index.clip.available
+    )
+    return _rewrite_image_urls(payload)
 
 
 @app.get("/api/catalog")

@@ -108,6 +108,13 @@
   .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); font-weight:650; }
   .showcase-title { margin:0 0 var(--s1); font-size:23px; letter-spacing:-.03em; }
   .showcase-sub { color:var(--muted); font-size:13px; margin:0 0 var(--s4); }
+  /* The three titles are different lengths, so at narrow widths one wraps to a
+     second line and the others do not - resizing the card on a tab switch even
+     with the panel height pinned. Reserving two lines for both the title and
+     the sub keeps the card stable at every width. Applied only where wrapping
+     actually happens, so the desktop card is not padded for nothing. */
+  .showcase-title { min-height:var(--title-h,auto); }
+  .showcase-sub { min-height:var(--sub-h,auto); }
 
   .hero-image { position:relative; }
   /* The photo and its overlays, separate from the room-switcher below, so a
@@ -166,6 +173,11 @@
   .chip { width:auto; cursor:pointer; font:inherit; font-size:12px; line-height:1.2; }
   .chip:hover:not(.on) { border-color:var(--muted); color:var(--ink); }
   .panel-body[hidden] { display:none !important; }
+  /* All three panels share one height, so switching tabs never resizes the
+     card or reflows the hero around it. The swap panel is the tallest natural
+     content (a 4:3 photo plus its room switcher), so that sets the number and
+     the other two are contained to match. */
+  .panel-body { height:var(--panel-h); display:flex; flex-direction:column; }
 
   /* --- Shop panel ---------------------------------------------------------- */
   /* A still of the workspace's real checkout: same tokens, same per-merchant
@@ -173,27 +185,46 @@
      order is itemised and authorized by the user, not the agent. */
   .shop-sheet {
     background:var(--panel); border:1px solid var(--line);
-    border-radius:var(--r-md); padding:var(--s4); box-shadow:var(--shadow-sm);
+    border-radius:var(--r-md); padding:var(--s3) var(--s4); box-shadow:var(--shadow-sm);
+    /* Fills the panel and splits into a scrolling list plus a pinned footer,
+       so a longer order lengthens the scroll area rather than the hero. */
+    flex:1; min-height:0; display:flex; flex-direction:column;
   }
-  .shop-merchant + .shop-merchant { margin-top:var(--s4); padding-top:var(--s4); border-top:1px solid var(--line); }
+  /* The only part that scrolls. min-height:0 is what actually lets it shrink
+     inside the flex column - without it the list forces the sheet open again
+     and the containment does nothing. */
+  .shop-scroll {
+    flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+    /* Room for the fade so the last line is not sitting under it. */
+    padding-right:var(--s2); margin-right:calc(var(--s2) * -1);
+  }
+  /* Says "there is more below" without a scrollbar always being visible. */
+  .shop-scroll-wrap { position:relative; flex:1; min-height:0; display:flex; }
+  .shop-scroll-wrap::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:26px;
+    background:linear-gradient(to bottom, transparent, var(--panel));
+    pointer-events:none; opacity:1; transition:opacity .2s ease;
+  }
+  .shop-scroll-wrap.at-end::after { opacity:0; }
+  .shop-merchant + .shop-merchant { margin-top:var(--s3); padding-top:var(--s3); border-top:1px solid var(--line); }
   .shop-merchant-head { display:flex; justify-content:space-between; align-items:baseline; gap:var(--s3); margin-bottom:var(--s2); }
   .shop-merchant-head strong { font:650 14px var(--sans); letter-spacing:-.01em; }
   .shop-merchant-head .ship { font-size:11px; color:var(--muted); }
-  .shop-line { display:flex; justify-content:space-between; gap:var(--s3); font-size:13px; color:var(--muted); padding:3px 0; }
+  .shop-line { display:flex; justify-content:space-between; gap:var(--s3); font-size:13px; color:var(--muted); padding:2px 0; }
   .shop-line .sl-price { font-variant-numeric:tabular-nums; color:var(--ink); }
   .shop-card {
-    display:flex; align-items:center; gap:var(--s2); margin-top:var(--s2);
+    display:flex; align-items:center; gap:var(--s2); margin-top:6px;
     font-size:11px; color:var(--muted);
   }
   .shop-card .dot { width:26px; height:17px; border-radius:3px; background:var(--ink); opacity:.85; flex:none; }
-  .shop-totals { border-top:1px solid var(--line); margin-top:var(--s4); padding-top:var(--s3); }
-  .shop-row { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); padding:2px 0; }
+  .shop-totals { border-top:1px solid var(--line); margin-top:var(--s3); padding-top:var(--s3); flex:none; }
+  .shop-row { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); padding:1px 0; }
   .shop-row.total { color:var(--ink); font-weight:650; font-size:16px; padding-top:var(--s2); }
   .shop-row .sr-amt { font-variant-numeric:tabular-nums; }
   /* Press-and-hold is the real gesture in the workspace: the agent can price an
      order but only the user releases it. The bar fills on hold. */
   .hold-btn {
-    position:relative; overflow:hidden; margin-top:var(--s4);
+    position:relative; overflow:hidden; margin-top:var(--s3);
     background:var(--accent); border-color:var(--accent); color:#fff;
     font-weight:650; border-radius:var(--r-pill); padding:13px 20px; cursor:pointer;
   }
@@ -211,7 +242,7 @@
      ranked match list. Boxes are normalized [0,1] exactly as /api/detect
      returns them, so the demo geometry matches the real payload. */
   .inv-frame { position:relative; }
-  .inv-frame img { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:var(--r-lg); display:block; }
+  .inv-frame img { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:var(--r-lg); display:block; }
   .inv-box {
     position:absolute; border:2px solid var(--accent); border-radius:6px;
     background:transparent; padding:0; cursor:pointer;
@@ -246,7 +277,20 @@
     0% { top:0; opacity:0; } 12% { opacity:1; }
     88% { opacity:1; } 100% { top:100%; opacity:0; }
   }
-  .inv-results { margin-top:var(--s3); }
+  /* The photo keeps its natural size; the results list absorbs what is left of
+     the panel and scrolls if a detection has more matches than fit. Without
+     this, picking an object grows the card and reflows the hero - the same
+     failure the receipt had. */
+  .inv-results { margin-top:var(--s3); flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+  .inv-frame { flex:none; }
+  /* Wraps the scrolling list so the "more below" fade can sit over it. */
+  .inv-results-wrap { position:relative; flex:1; min-height:0; display:flex; }
+  .inv-results-wrap::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:24px;
+    background:linear-gradient(to bottom, transparent, var(--panel));
+    pointer-events:none; transition:opacity .2s ease;
+  }
+  .inv-results-wrap.at-end::after { opacity:0; }
   .inv-empty { color:var(--muted); font-size:13px; padding:var(--s3) 0; }
   .inv-caption {
     font-size:12px; color:var(--muted); font-style:italic;
@@ -431,6 +475,8 @@
        because that is how the order is actually charged. -->
   <div class="panel-body" id="panel-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
     <div class="shop-sheet">
+     <div class="shop-scroll-wrap">
+      <div class="shop-scroll" id="shop-scroll">
       <div class="shop-merchant">
         <div class="shop-merchant-head"><strong>Nordhaus</strong><span class="ship">Arrives in 9 days</span></div>
         <div class="shop-line"><span>Modular Sofa</span><span class="sl-price">$1,290</span></div>
@@ -443,6 +489,8 @@
         <div class="shop-line"><span>Arc Floor Lamp</span><span class="sl-price">$530</span></div>
         <div class="shop-card"><span class="dot"></span>Amex ending 1005</div>
       </div>
+      </div><!-- /shop-scroll -->
+     </div><!-- /shop-scroll-wrap -->
       <div class="shop-totals">
         <div class="shop-row"><span>Subtotal</span><span class="sr-amt">$2,890</span></div>
         <div class="shop-row"><span>Shipping · 2 merchants</span><span class="sr-amt">$98</span></div>
@@ -465,7 +513,9 @@
       <img src="assets/room-01-user.png" alt="A living room photo with detected furniture outlined for reverse search">
       <div class="inv-scanline"></div>
     </div>
-    <div class="inv-results" id="inv-results" role="status" aria-live="polite"></div>
+    <div class="inv-results-wrap">
+      <div class="inv-results" id="inv-results" role="status" aria-live="polite"></div>
+    </div>
   </div><!-- /panel-investigate -->
   </div><!-- /showcase-card -->
 </section>
@@ -733,6 +783,61 @@ const PANELS = {
 
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 
+/* The swap panel's natural height sets the card's height for all three, so a
+   tab switch never resizes the card. Measured rather than hard-coded: the
+   photo is 4:3 of a fluid column, so the number changes with the viewport.
+   Measure before any panel is pinned, and re-measure on resize. */
+const panels = ["swap", "shop", "investigate"].map(n => $("panel-" + n));
+function lockPanelHeight() {
+  const root = document.documentElement;
+  root.style.setProperty("--panel-h", "auto");
+  // The tallest panel sets the height for all three. Taking the max rather
+  // than the swap panel alone is what keeps the receipt from opening
+  // mid-line: the card settles on one size, and it is a size everything fits.
+  let tallest = 0;
+  for (const panel of panels) {
+    const wasHidden = panel.hidden;
+    if (wasHidden) { panel.style.visibility = "hidden"; panel.hidden = false; }
+    tallest = Math.max(tallest, Math.ceil(panel.getBoundingClientRect().height));
+    if (wasHidden) { panel.hidden = true; panel.style.visibility = ""; }
+  }
+  if (tallest > 0) root.style.setProperty("--panel-h", tallest + "px");
+
+  // The three titles are different lengths, so at some widths one wraps to a
+  // second line and the others do not - which resizes the card on a tab switch
+  // even with the panel pinned. Measure every tab's header and reserve the
+  // tallest, so the card holds one height at every width.
+  const titleEl = $("showcase-title"), subEl = $("showcase-sub");
+  const keep = [titleEl.textContent, subEl.textContent];
+  root.style.setProperty("--title-h", "auto");
+  root.style.setProperty("--sub-h", "auto");
+  let th = 0, sh = 0;
+  for (const key of Object.keys(PANELS)) {
+    titleEl.textContent = PANELS[key].title;
+    subEl.textContent = PANELS[key].sub;
+    th = Math.max(th, Math.ceil(titleEl.getBoundingClientRect().height));
+    sh = Math.max(sh, Math.ceil(subEl.getBoundingClientRect().height));
+  }
+  [titleEl.textContent, subEl.textContent] = keep;
+  if (th > 0) root.style.setProperty("--title-h", th + "px");
+  if (sh > 0) root.style.setProperty("--sub-h", sh + "px");
+}
+lockPanelHeight();
+// The photo decoding late changes the panel's height, so measure again once it
+// has loaded and whenever the column is resized.
+if (!roomPhoto.complete) roomPhoto.addEventListener("load", lockPanelHeight, { once: true });
+addEventListener("resize", lockPanelHeight);
+
+/* Hide the "more below" fade once the list is scrolled to the end. */
+const shopScroll = $("shop-scroll");
+const shopWrap = shopScroll.parentElement;
+function syncShopFade() {
+  const atEnd = shopScroll.scrollTop + shopScroll.clientHeight >= shopScroll.scrollHeight - 2;
+  // Nothing to scroll at all also counts as "at end" - no fade over a short list.
+  shopWrap.classList.toggle("at-end", atEnd || shopScroll.scrollHeight <= shopScroll.clientHeight + 2);
+}
+shopScroll.addEventListener("scroll", syncShopFade, { passive: true });
+
 function selectPanel(name) {
   for (const tab of tabs) {
     const on = tab.dataset.panel === name;
@@ -746,6 +851,9 @@ function selectPanel(name) {
   $("showcase-title").textContent = PANELS[name].title;
   $("showcase-sub").textContent = PANELS[name].sub;
   if (name === "investigate") resetInvestigate();
+  // A hidden element has no dimensions, so the fade can only be resolved once
+  // the panel is actually on screen.
+  if (name === "shop") syncShopFade();
 }
 
 tabs.forEach(tab => tab.addEventListener("click", () => selectPanel(tab.dataset.panel)));
@@ -891,13 +999,23 @@ function showMatches(index, box) {
 
   invResults.innerHTML =
     `<div class="inv-caption">“${escapeHtml(det.caption)}” ${flag}</div>${rows}`;
+  invResults.scrollTop = 0;
+  syncInvFade();
 }
+
+function syncInvFade() {
+  const wrap = invResults.parentElement;
+  const atEnd = invResults.scrollTop + invResults.clientHeight >= invResults.scrollHeight - 2;
+  wrap.classList.toggle("at-end", atEnd || invResults.scrollHeight <= invResults.clientHeight + 2);
+}
+invResults.addEventListener("scroll", syncInvFade, { passive: true });
 
 function resetInvestigate() {
   drawBoxes();
   invFrame.querySelectorAll(".inv-box").forEach(b => b.classList.remove("on"));
   invResults.innerHTML =
     '<div class="inv-empty">Tap an outlined piece to identify it.</div>';
+  syncInvFade();
   // Replay the scan sweep on each visit; it reads as the detector running.
   invFrame.classList.remove("scanning");
   void invFrame.offsetWidth;   // restart the animation

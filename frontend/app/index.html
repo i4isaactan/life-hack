@@ -10,17 +10,33 @@
 <link rel="stylesheet" href="../shared.css">
 <style>
   /* --- App shell ----------------------------------------------------------
-     A fixed-height three-part frame: header, then a two-column body that owns
-     its own scrolling. The old planner let the whole document scroll, so the
-     chat composer wandered off-screen exactly when a user wanted to reply to
-     what they were reading. Here each column scrolls independently and the
-     composer is always in reach. */
+     A sequence, not a dashboard. The design moves through four stages -
+     brief, identify, design, checkout - and the header stepper is the only
+     navigation. One stage occupies the stage area at a time; the assistant
+     sits in a rail beside it and persists across every stage, so help is
+     never more than a glance away.
+
+     Two decisions about the middle of that sequence:
+
+     Identify is its own stage because it is its own product. "What is that
+     chair and can I buy it?" is a smaller question than "furnish my room",
+     it works on a photo of someone else's room, and it needs no budget,
+     style or layout - so it should not sit behind a solve.
+
+     Design is one stage rather than the two it began as (layout, swap).
+     Those split a single loop - look at the render, swap a piece, look
+     again - across a stage boundary, so the picture being judged was never
+     on screen beside the alternatives being judged against it.
+
+     Three fixed rows: header, stepper, body. The body is the only thing that
+     scrolls, and each of its two columns scrolls independently - the composer
+     must stay in reach no matter how long the transcript or the floor plan. */
   html, body { height:100%; }
-  body { display:grid; grid-template-rows:auto 1fr; overflow:hidden; }
+  body { display:grid; grid-template-rows:auto auto 1fr; overflow:hidden; }
 
   .app-head {
     display:flex; align-items:center; gap:var(--s4);
-    padding:0 var(--s5); height:60px;
+    padding:0 var(--s5); height:56px;
     background:var(--panel); border-bottom:1px solid var(--line);
   }
   .app-head .back { color:var(--muted); text-decoration:none; font-size:13px; padding:6px 10px; border-radius:var(--r-pill); }
@@ -33,64 +49,145 @@
   }
   #health { font-size:12px; color:var(--muted); }
 
-  .app-body { display:grid; grid-template-columns:minmax(340px,400px) 1fr; min-height:0; }
+  /* --- Stepper ------------------------------------------------------------
+     o----o----o. The connector is drawn as a single line behind the row rather
+     than per-item borders, so the segments never drift apart at fractional
+     widths. Each step is a button: reachable steps are clickable in both
+     directions, so reviewing the cart and returning to the design costs
+     nothing. */
+  .stepper {
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:var(--s4) var(--s5) var(--s3);
+  }
+  .steps {
+    display:grid; grid-auto-flow:column; grid-auto-columns:1fr;
+    max-width:860px; margin:0 auto; position:relative;
+  }
+  /* The rail sits behind the bubbles, inset by half a cell so it starts and
+     ends at the first and last bubble rather than the row edge. With N equal
+     columns that inset is 50/N percent, leaving 100 - 100/N of span between
+     the end bubbles. --inset and --span are set from paintStepper() so the
+     geometry follows the stage count instead of being re-derived by hand
+     every time a stage is added or removed. */
+  .steps::before {
+    content:""; position:absolute; top:13px;
+    left:var(--inset,12.5%); right:var(--inset,12.5%);
+    height:2px; background:var(--line); z-index:0;
+  }
+  /* Progress fill: width is set from JS as a percentage of the rail. */
+  .steps::after {
+    content:""; position:absolute; top:13px; left:var(--inset,12.5%);
+    width:var(--progress,0%); max-width:var(--span,75%);
+    height:2px; background:var(--accent); z-index:0;
+    transition:width .45s cubic-bezier(.4,0,.2,1);
+  }
 
-  /* --- Left rail: brief + conversation ----------------------------------- */
+  .step {
+    position:relative; z-index:1; width:auto; margin:0;
+    background:transparent; border:0; border-radius:var(--r-md); padding:0 var(--s1) var(--s1);
+    display:grid; justify-items:center; gap:6px;
+    color:var(--muted); font-weight:600; cursor:default;
+  }
+  .step:hover:not(:disabled) { background:transparent; }
+  .step .dot {
+    width:28px; height:28px; border-radius:50%;
+    display:grid; place-items:center;
+    background:var(--panel); border:2px solid var(--line);
+    font-size:12px; font-weight:700; color:var(--muted);
+    transition:background .25s, border-color .25s, color .25s, transform .25s;
+  }
+  .step .label { font-size:12px; letter-spacing:.01em; transition:color .25s; }
+
+  /* Behind you: a stage you actually passed through. Filled, clickable. */
+  .step.done { cursor:pointer; }
+  .step.done .dot { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .step.done .label { color:var(--ink); }
+  .step.done:hover .dot { transform:scale(1.09); }
+
+  /* Ahead of you but already reachable - its content exists, you just have
+     not been there. Clickable and legible, but NOT filled: colouring these
+     would show a completed journey the moment one generate populated every
+     panel. Outlined rather than dimmed, so it still reads as available
+     rather than locked. */
+  .step.ahead { cursor:pointer; }
+  .step.ahead .dot { background:var(--panel); border-color:var(--accent); color:var(--accent-dark); }
+  .step.ahead .label { color:var(--ink); }
+  .step.ahead:hover .dot { transform:scale(1.09); background:#a8552a14; }
+
+  /* Current stage: ringed, so it reads as "you are here" rather than "done". */
+  .step.current { cursor:pointer; }
+  .step.current .dot {
+    background:var(--panel); border-color:var(--accent); color:var(--accent-dark);
+    box-shadow:0 0 0 4px #a8552a24;
+  }
+  .step.current .label { color:var(--accent-dark); font-weight:700; }
+
+  /* Locked: nothing behind it yet. Dimmed and genuinely disabled, so the row
+     shows the whole journey without pretending an empty stage is ready. */
+  .step:disabled { opacity:.45; cursor:not-allowed; }
+
+  @media (max-width:640px) {
+    .step .label { display:none; }
+    .stepper { padding:var(--s3) var(--s4); }
+  }
+
+  /* --- Body: stage + assistant rail --------------------------------------- */
+  .app-body { display:grid; grid-template-columns:1fr minmax(320px,378px); min-height:0; }
+
+  .stage { display:grid; grid-template-rows:1fr auto; min-height:0; background:var(--bg); }
+  .stage-scroll { overflow-y:auto; min-height:0; padding:var(--s6) var(--s5); scrollbar-width:thin; }
+  .view { max-width:900px; margin:0 auto; }
+  .view > h3 { font-size:24px; margin-bottom:var(--s1); }
+  .view > p.muted { font-size:13.5px; margin:0 0 var(--s5); }
+
+  /* Each stage fades and lifts as it becomes current. Cheap, but it sells the
+     sequence: content arrives rather than blinking into place. */
+  .view:not([hidden]) { animation:rise .32s cubic-bezier(.2,.7,.3,1); }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion:reduce) {
+    .view:not([hidden]) { animation:none; }
+    .steps::after { transition:none; }
+  }
+
+  /* --- Stage footer: the forward action ------------------------------------
+     Every stage ends with one obvious next move, so the sequence is walkable
+     without touching the stepper at all. */
+  .stage-foot {
+    display:flex; align-items:center; gap:var(--s3);
+    padding:var(--s4) var(--s5); border-top:1px solid var(--line);
+    background:var(--panel);
+  }
+  .stage-foot .step-of { font-size:12px; color:var(--muted); }
+  .stage-foot .spacer { margin-left:auto; }
+  .stage-foot button { width:auto; padding:10px 20px; border-radius:var(--r-md); }
+  .stage-foot .back-btn { padding:10px 14px; }
+
+  /* --- Assistant rail ------------------------------------------------------ */
   .rail {
     display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0;
-    background:var(--panel); border-right:1px solid var(--line);
+    background:var(--panel); border-left:1px solid var(--line);
   }
-  /* An open brief must not eat the whole rail, and must never clip its own
-     Generate button. Capping the <details> alone does not work: its content
-     box keeps its natural height and paints outside, letting the transcript
-     cover the button. Bounding the body itself is what actually contains it. */
-  .brief[open] { overflow:hidden; }
-  .brief[open] > .brief-body { max-height:46vh; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
-
-  /* The brief is collapsed by default. It is set once at the start and rarely
-     revisited, so it should not permanently cost the transcript half its
-     height - but it stays one click away, not buried. */
-  .brief { border-bottom:1px solid var(--line); }
-  .brief > summary {
-    list-style:none; cursor:pointer; padding:var(--s4) var(--s5);
-    display:flex; align-items:center; gap:var(--s2); font-size:13px;
-    transition:background .15s ease;
+  .rail-head {
+    display:flex; align-items:center; gap:var(--s2);
+    padding:var(--s4) var(--s5); border-bottom:1px solid var(--line);
   }
-  .brief[open] > summary { background:var(--soft); }
-  .brief > summary::-webkit-details-marker { display:none; }
-  .brief > summary::after { content:"▾"; margin-left:auto; color:var(--muted); transition:transform .2s; }
-  .brief[open] > summary::after { transform:rotate(180deg); }
-  .brief > summary:hover { background:var(--soft); }
-  .brief strong { font-family:var(--sans); font-weight:650; }
-  #brief-summary { color:var(--muted); font-size:12px; }
-  .brief-body { padding:0 var(--s5) var(--s4); }
-
-  .drop {
-    position:relative; display:block; border:1.5px dashed #b9c7b8; border-radius:var(--r-md);
-    background:var(--soft); text-align:center; cursor:pointer; overflow:hidden; min-height:104px;
+  .rail-head strong { font-family:var(--sans); font-size:13px; font-weight:650; }
+  .rail-head .muted { font-size:11.5px; }
+  .rail-mark {
+    width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    background:var(--accent); color:#fff; font-size:13px; flex:none;
   }
-  .drop:hover { border-color:var(--accent); }
-  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
-  .drop-prompt { padding:var(--s5) var(--s3); }
-  .drop-prompt strong { display:block; font-family:var(--sans); font-size:13px; font-weight:650; }
-  .drop-prompt span { font-size:12px; color:var(--muted); }
-  #photo-preview { display:block; width:100%; height:150px; object-fit:cover; }
 
-  .field-label { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:var(--s4) 0 var(--s1); }
-  .measure-row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s2); }
-  .hint { font-size:11px; color:var(--muted); margin:var(--s1) 0 0; }
-
-  /* --- Transcript --------------------------------------------------------- */
   .transcript {
     overflow-y:auto; min-height:0;   /* without this the 1fr track refuses to
-                                        shrink and the content spills under
-                                        the composer instead of scrolling */
+                                        shrink and content spills under the
+                                        composer instead of scrolling */
     padding:var(--s5); display:flex; flex-direction:column; gap:var(--s3);
     scrollbar-width:thin;
   }
   .bubble {
-    max-width:88%; padding:11px 14px; border-radius:var(--r-md) var(--r-md) var(--r-md) 4px;
-    background:var(--soft); font-size:14px; line-height:1.55;
+    max-width:92%; padding:11px 14px; border-radius:var(--r-md) var(--r-md) var(--r-md) 4px;
+    background:var(--soft); font-size:13.5px; line-height:1.55;
   }
   .bubble.user { align-self:flex-end; border-radius:var(--r-md) var(--r-md) 4px var(--r-md); background:var(--ink); color:#fff; }
   /* The assistant's reply carries bullets and paragraph breaks; without this it
@@ -106,6 +203,46 @@
   }
   .bubble small { display:block; opacity:.6; font-size:10px; margin-bottom:3px; text-transform:uppercase; letter-spacing:.1em; }
 
+  /* --- Thinking trace -----------------------------------------------------
+     The work the agent is doing, line by line, deliberately OUTSIDE a bubble:
+     a bubble is something the assistant said, and this is not speech - it is
+     the machine narrating itself. Unbubbled, muted and monospaced-ish, it
+     reads as a log rather than a message, which is also what stops it being
+     mistaken for the reply once the real answer arrives below it. */
+  .think {
+    display:flex; flex-direction:column; gap:2px;
+    margin:0 0 var(--s1); padding-left:2px;
+  }
+  .think-line {
+    display:flex; align-items:center; gap:var(--s2);
+    font-size:12px; color:var(--muted); line-height:1.5;
+    /* Each line fades up as it is added, so the trace reads as work arriving
+       rather than a list that was always there. */
+    animation:think-in .26s ease-out both;
+  }
+  @keyframes think-in { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+  /* The marker is the state: a spinner while running, a tick once passed. */
+  .think-mark {
+    flex:none; width:12px; height:12px; display:grid; place-items:center;
+  }
+  .think-line.doing .think-mark::before {
+    content:""; width:9px; height:9px; border-radius:50%;
+    border:1.5px solid var(--line); border-top-color:var(--accent);
+    animation:spin .7s linear infinite;
+  }
+  .think-line.done .think-mark::before {
+    content:"✓"; font-size:10px; color:var(--ok); line-height:1;
+  }
+  .think-line.done { opacity:.62; }
+  .think-line .think-text { min-width:0; }
+  /* A finished step can carry what it actually found - "4.2 × 3.6 m", "174
+     products" - so the trace reports rather than just ticks. */
+  .think-line .think-note { color:var(--ink); opacity:.75; }
+  @media (prefers-reduced-motion: reduce) {
+    .think-line { animation:none; }
+    .think-line.doing .think-mark::before { animation:none; }
+  }
+
   .suggests { display:flex; flex-wrap:wrap; gap:var(--s2); margin-top:var(--s2); }
   .suggests button {
     width:auto; padding:7px 13px; border-radius:var(--r-pill); font-size:12.5px; font-weight:500;
@@ -117,39 +254,93 @@
   .composer textarea { flex:1; min-height:42px; max-height:140px; resize:none; border-radius:var(--r-md); padding:11px 13px; }
   .composer button { width:auto; padding:11px 18px; border-radius:var(--r-md); }
 
-  /* --- Canvas ------------------------------------------------------------- */
-  .canvas { display:grid; grid-template-rows:auto 1fr; min-height:0; }
-  .tabs { display:flex; gap:var(--s1); padding:var(--s3) var(--s5) 0; border-bottom:1px solid var(--line); }
-  .tabs button {
-    width:auto; background:transparent; border:0; border-bottom:2px solid transparent;
-    border-radius:0; color:var(--muted); font-size:13px; font-weight:600; padding:9px 14px;
+  /* --- Stage 1: the brief --------------------------------------------------
+     Promoted out of the collapsed drawer it used to live in. It is the first
+     thing anyone does, so it gets the stage rather than a <details>. */
+  .brief-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s5); align-items:start; }
+  @media (max-width:820px) { .brief-grid { grid-template-columns:1fr; } }
+
+  .drop {
+    position:relative; display:block; border:1.5px dashed #b9c7b8; border-radius:var(--r-md);
+    background:var(--soft); text-align:center; cursor:pointer; overflow:hidden; min-height:180px;
   }
-  .tabs button:hover:not(:disabled) { color:var(--ink); background:transparent; }
-  .tabs button.active { color:var(--accent-dark); border-bottom-color:var(--accent); }
-  .tabs button:disabled { opacity:.35; }
+  .drop:hover { border-color:var(--accent); }
+  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .drop-prompt { padding:var(--s6) var(--s4); }
+  .drop-prompt .mark { font-size:28px; opacity:.45; display:block; margin-bottom:var(--s2); }
+  .drop-prompt strong { display:block; font-family:var(--sans); font-size:14px; font-weight:650; }
+  .drop-prompt span { font-size:12.5px; color:var(--muted); }
+  #photo-preview { display:block; width:100%; height:230px; object-fit:cover; }
 
-  .canvas-scroll { overflow-y:auto; min-height:0; padding:var(--s5); scrollbar-width:thin; }
-  .view { max-width:900px; }
-  .view h3 { font-size:19px; margin-bottom:var(--s1); }
-  .view > p.muted { font-size:13px; margin:0 0 var(--s4); }
+  .field-label { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin:var(--s4) 0 var(--s1); }
+  .field-label:first-child { margin-top:0; }
+  .measure-row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s2); }
+  .hint { font-size:11.5px; color:var(--muted); margin:var(--s1) 0 0; }
 
-  /* An empty workspace should say what to do, not show four blank cards. */
-  .empty { display:grid; place-content:center; text-align:center; height:100%; padding:var(--s6); color:var(--muted); }
-  .empty h3 { font-size:24px; color:var(--ink); margin-bottom:var(--s2); }
-  .empty p { max-width:380px; margin:0 auto; font-size:14px; }
-  .empty .mark { font-size:40px; margin-bottom:var(--s4); opacity:.5; }
+  /* --- Empty states --------------------------------------------------------
+     A stage that is reachable but not yet filled says what unlocks it, rather
+     than showing a blank card. */
+  .empty { display:grid; place-content:center; text-align:center; padding:var(--s8) var(--s6); color:var(--muted); }
+  .empty h3 { font-size:22px; color:var(--ink); margin-bottom:var(--s2); }
+  .empty p { max-width:400px; margin:0 auto; font-size:14px; }
+  .empty .mark { font-size:38px; margin-bottom:var(--s4); opacity:.5; }
 
   .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s4); margin-bottom:var(--s4); }
   .card h2 { font-family:var(--sans); font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); margin:0 0 var(--s3); }
   .actions { display:flex; gap:var(--s2); margin-top:var(--s4); }
-  .actions button { margin:0; }
+  .actions button { margin:0; width:auto; }
 
   #floorplan svg {
     width:100%; height:auto; background:var(--panel);
     border:1px solid var(--line); border-radius:var(--r-md);
     font-family:var(--sans);
+    /* A deep room renders a very tall plan, which pushed the legend off the
+       bottom of the viewport - and the legend is now where the names live, so
+       it has to be visible with the drawing. Capping the height and letting the
+       SVG letterbox keeps both on screen at once. */
+    max-height:min(56vh, 520px);
   }
   #floorplan svg text { font-family:var(--sans); }
+
+  /* --- Floor plan legend --------------------------------------------------
+     Names used to be written inside each footprint, which forced the label to
+     be scaled to the piece - unreadable on a 38cm lamp, and pushed outside the
+     box entirely when it would not fit. A numbered key moves every name out of
+     the drawing: the plan carries one digit per piece, and the reading happens
+     down here where there is room for the name, size and price. */
+  #plan-legend { margin-top:var(--s3); }
+  .legend {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+    gap:2px var(--s4);
+  }
+  /* shared.css gives every bare `button` an accent fill and white text. The
+     legend rows are buttons for keyboard reachability, so they have to opt out
+     of the fill AND the colour - inheriting white text alone renders the names
+     invisible against the card. */
+  .legend-item {
+    display:flex; align-items:center; gap:var(--s2);
+    padding:6px 4px; border-radius:var(--r-sm); font-size:12.5px;
+    background:none; border:0; width:100%; text-align:left; cursor:pointer;
+    color:var(--ink); font-weight:500;
+  }
+  .legend-item:hover:not(:disabled) { background:var(--soft); border-color:transparent; }
+  .legend-item:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  /* The key. Number and colour together, because the swatch alone cannot
+     identify a piece - two beige items get near-identical product colours. */
+  .legend-key {
+    flex:none; width:20px; height:20px; border-radius:5px;
+    display:grid; place-items:center;
+    font:700 11px var(--sans); color:#26333f;
+    border:1.5px solid #26333f;
+  }
+  .legend-item.provisional .legend-key { border-style:dashed; }
+  .legend-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .legend-dim { color:var(--muted); font-size:11px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  /* Hovering a legend row lifts its piece in the plan, which is the whole
+     point of the pairing - the key is only useful if it points at something. */
+  #floorplan svg .piece.dim { opacity:.25; }
+  #floorplan svg .piece.lift rect { stroke-width:4; }
+  .legend-foot { color:var(--muted); font-size:12px; margin:var(--s3) 0 0; }
 
   .cart-line { display:grid; grid-template-columns:46px 1fr auto; gap:var(--s3); align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
   .cart-line:last-child { border-bottom:0; }
@@ -181,16 +372,66 @@
   .bundle-piece.owned { opacity:.6; }
   .bundle-flags { display:flex; gap:var(--s2); flex-wrap:wrap; }
 
+  /* --- Shop the photo (reverse search) -------------------------------------
+     One block per detected object: what we saw, then what we sell that looks
+     like it. The `confident` distinction is load-bearing and must stay legible
+     - a close match and a nearest-neighbour guess look identical otherwise. */
+  .shop-group { margin-bottom:var(--s5); }
+  .shop-group:last-child { margin-bottom:0; }
+  .shop-head { display:flex; align-items:baseline; gap:var(--s2); flex-wrap:wrap; margin-bottom:2px; }
+  .shop-what { font-weight:650; font-size:13px; }
+  .shop-seen { font-size:12px; color:var(--muted); margin:0 0 var(--s2); }
+  .shop-none { font-size:12px; color:var(--muted); }
+
+  /* --- Accuracy controls (Identify stage) ----------------------------------
+     These sit above the plain facts card because acting on them changes what
+     the solver can place - they are the stage's actual work, not an aside. */
+  .card.accuracy { border-color:#d8c3b4; background:linear-gradient(var(--panel),var(--panel)) padding-box; }
+  .confirm-q { font-size:14.5px; margin:0 0 var(--s3); line-height:1.5; }
+  .mini { display:grid; gap:4px; }
+  .mini > span { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+  .check { display:flex; gap:var(--s2); align-items:flex-start; margin-top:var(--s3); font-size:13px; cursor:pointer; }
+  .check input { width:16px; height:16px; flex:none; margin-top:2px; accent-color:var(--accent); }
+  .unlocks {
+    font-size:12.5px; color:var(--accent-dark); background:#a8552a14;
+    border-radius:var(--r-sm); padding:8px 11px; margin:var(--s3) 0 0;
+  }
+
+  /* One opening per row. The wall and kind are selects because a free-text
+     wall is a validation problem the backend already rejects. */
+  .opening {
+    display:grid; grid-template-columns:auto 1fr 1fr 1fr auto; gap:var(--s2);
+    align-items:end; padding:var(--s3) 0; border-bottom:1px solid var(--line);
+  }
+  .opening:last-of-type { border-bottom:0; }
+  .opening .kind {
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--accent-dark); padding-bottom:10px; white-space:nowrap;
+  }
+  .opening select, .opening input { padding:7px 9px; font-size:13px; }
+  .opening .drop-it {
+    width:auto; background:transparent; border:0; color:var(--muted);
+    font-size:16px; padding:6px 9px; border-radius:var(--r-sm); line-height:1;
+  }
+  .opening .drop-it:hover { background:var(--soft); color:var(--err); }
+  .openings-none { font-size:13px; color:var(--muted); margin:0 0 var(--s2); }
+  @media (max-width:640px) {
+    .opening { grid-template-columns:auto 1fr auto; }
+  }
+
   .render-img { width:100%; border-radius:var(--r-md); display:block; }
   .render-item { margin:0 0 var(--s4); }
   .ask { padding:var(--s3); background:var(--soft); border-radius:var(--r-sm); margin-bottom:var(--s2); }
   .ask p { margin:0 0 var(--s1); font-size:13px; }
 
+  /* Below the two-column threshold the rail stops being a sidebar and becomes
+     the bottom half of the screen, so both stay usable on a phone. */
   @media (max-width:900px) {
     body { overflow:auto; }
     .app-body { grid-template-columns:1fr; }
-    .rail { border-right:0; border-bottom:1px solid var(--line); }
-    .transcript { max-height:44vh; }
+    .rail { border-left:0; border-top:1px solid var(--line); }
+    .transcript { max-height:42vh; }
+    .stage-scroll { padding:var(--s5) var(--s4); }
   }
 </style>
 </head>
@@ -204,41 +445,219 @@
   <span id="health">Checking API…</span>
 </header>
 
+<nav class="stepper" aria-label="Design progress">
+  <div class="steps" id="steps">
+    <button class="step current" id="step-brief" data-stage="brief"><span class="dot">1</span><span class="label">Brief</span></button>
+    <button class="step" id="step-identify" data-stage="identify" disabled><span class="dot">2</span><span class="label">Identify</span></button>
+    <button class="step" id="step-design"   data-stage="design"   disabled><span class="dot">3</span><span class="label">Design</span></button>
+    <button class="step" id="step-checkout" data-stage="checkout" disabled><span class="dot">4</span><span class="label">Checkout</span></button>
+  </div>
+</nav>
+
 <div class="app-body">
 
-  <section class="rail">
-    <details class="brief">
-      <summary><strong>Your brief</strong> <span id="brief-summary"></span></summary>
-      <div class="brief-body">
-        <label class="drop" for="room-photo-input">
-          <input id="room-photo-input" type="file" accept="image/*" aria-label="Upload room photo">
-          <div class="drop-prompt" id="photo-prompt">
-            <strong>Add a room photo</strong>
-            <span>We'll measure and design around it</span>
+  <section class="stage">
+    <div class="stage-scroll" id="stage-scroll">
+
+      <!-- 1 · Brief -->
+      <div class="view" id="view-brief">
+        <h3>Tell us about your room</h3>
+        <p class="muted">A photo lets us measure and design around what's already there. Real measurements unlock pieces the solver won't place from an estimate alone.</p>
+        <div class="brief-grid">
+          <div>
+            <label class="drop" for="room-photo-input">
+              <input id="room-photo-input" type="file" accept="image/*" aria-label="Upload room photo">
+              <div class="drop-prompt" id="photo-prompt">
+                <span class="mark">◱</span>
+                <strong>Add a room photo</strong>
+                <span>We'll measure and design around it</span>
+              </div>
+              <img id="photo-preview" alt="Your room" hidden>
+            </label>
+            <p class="hint" id="upload-name"></p>
           </div>
-          <img id="photo-preview" alt="Your room" hidden>
-        </label>
-        <p class="hint" id="upload-name"></p>
 
-        <label class="field-label" for="chat-style">Style</label>
-        <select id="chat-style">
-          <option>Modern Lux</option><option>Soft Minimal</option>
-          <option>Warm Japandi</option><option>Bold Eclectic</option>
-        </select>
+          <div>
+            <label class="field-label" for="chat-style">Style</label>
+            <select id="chat-style">
+              <option>Modern Lux</option><option>Soft Minimal</option>
+              <option>Warm Japandi</option><option>Bold Eclectic</option>
+            </select>
 
-        <label class="field-label" for="chat-budget">Budget (USD)</label>
-        <input id="chat-budget" type="number" min="0" placeholder="e.g. 2500">
+            <label class="field-label" for="chat-budget">Budget (SGD)</label>
+            <input id="chat-budget" type="number" min="0" placeholder="e.g. 2500">
 
-        <label class="field-label">Room size (cm)</label>
-        <div class="measure-row">
-          <input id="room-width" type="number" min="0" placeholder="width" aria-label="Room width in cm">
-          <input id="room-depth" type="number" min="0" placeholder="depth" aria-label="Room depth in cm">
+            <label class="field-label">Room size (cm)</label>
+            <div class="measure-row">
+              <input id="room-width" type="number" min="0" placeholder="width" aria-label="Room width in cm">
+              <input id="room-depth" type="number" min="0" placeholder="depth" aria-label="Room depth in cm">
+            </div>
+            <p class="hint">Real measurements unlock pieces the solver won't place from a photo estimate alone.</p>
+            <p class="hint" id="brief-summary" hidden></p>
+          </div>
         </div>
-        <p class="hint">Real measurements unlock pieces the solver won't place from a photo estimate alone.</p>
-
-        <button class="primary" id="generate-layout" style="margin-top:var(--s4)">Generate my layout →</button>
       </div>
-    </details>
+
+      <!-- 2 · Identify ---------------------------------------------------
+           Product discovery, and its own reason to open the app. Everything
+           downstream assumes you want a whole room solved; this stage answers
+           the narrower and far more common question - "what IS that, and can
+           I buy it?" - about a photo that need not be of your own room.
+
+           It comes before Design because it is the cheaper question. Finding
+           one chair does not require a budget, a style or a layout, and
+           someone who only wanted that should not have to sit through a
+           solve to get it. What we read about the room follows underneath,
+           since it is the same photo and the same look. -->
+      <div class="view" id="view-identify" hidden>
+        <h3>What's in the photo</h3>
+        <p class="muted">Every piece we can see, matched against the catalog. Works on any room — it does not have to be yours.</p>
+
+        <div class="card" id="panel-shop" hidden>
+          <h2>Shop what's in the photo</h2>
+          <p class="muted note-line" style="margin-top:0">Each piece we spotted, matched against the catalog.
+             Close matches are marked; the rest are the nearest things we sell.</p>
+          <div id="shop-matches"></div>
+        </div>
+        <div class="card" id="panel-room" hidden>
+          <h2>Your room</h2>
+          <div id="room-facts"></div>
+        </div>
+        <div class="empty" id="empty-identify">
+          <div class="mark">◎</div>
+          <h3>Nothing identified yet</h3>
+          <p>Add a room photo in your brief and generate a design — we'll pick out the furniture in your photo and find what we sell that looks like it.</p>
+        </div>
+      </div>
+
+      <!-- 3 · Design ------------------------------------------------------
+           The solved room: a layout, painted into your photo, and the pieces
+           you can trade in and out of it. Layout and swap are one screen
+           because they are one loop - look at the render, swap a piece, look
+           again - and splitting them made every iteration cost a navigation.
+
+           The accuracy controls sit at the end. They change what the solver
+           may place, so they belong to this stage rather than to Identify,
+           but they are a refinement and not the main event. -->
+      <div class="view" id="view-design" hidden>
+        <h3>Your design</h3>
+        <p class="muted">Solved against your room and yours to change — every swap re-solves the layout and re-prices the cart.</p>
+
+        <div class="card" id="panel-render" hidden>
+          <h2>In your room</h2>
+          <p class="muted note-line" style="margin-top:0">An AI approximation of these products in your room — not a photograph.</p>
+          <div id="renders"></div>
+          <div class="actions" style="margin-top:var(--s3)">
+            <button class="primary" id="rerender-swap" hidden>Update the visualization →</button>
+          </div>
+          <p class="muted note-line" id="swap-render-note" hidden>Showing your previous design — update to see the pieces you just swapped.</p>
+        </div>
+        <div class="card" id="panel-plan" hidden>
+          <h2>Floor plan</h2>
+          <p class="muted note-line" style="margin-top:0">Solved against your room's dimensions. Dashed outlines are provisional.</p>
+          <div id="floorplan"></div>
+          <div id="plan-legend"></div>
+          <div id="plan-notes"></div>
+        </div>
+        <div class="card" id="panel-alts" hidden>
+          <h2>Swap a piece</h2>
+          <p class="muted note-line" style="margin-top:0">Every swap re-solves the layout and re-prices the cart — a different sofa may not fit.</p>
+          <div id="alts"></div>
+        </div>
+        <div class="card" id="panel-bundles" hidden>
+          <h2>Complete the set</h2>
+          <p class="muted">Suggested from the product data — matching ranges and styling, not purchase history.</p>
+          <div id="bundles"></div>
+        </div>
+        <div class="card accuracy" id="panel-confirm" hidden>
+          <h2>Is this about right?</h2>
+          <p class="confirm-q" id="confirm-question"></p>
+          <div class="measure-row">
+            <label class="mini">
+              <span>Width</span>
+              <input id="confirm-width" type="number" min="1" step="1" aria-label="Room width in cm">
+            </label>
+            <label class="mini">
+              <span>Depth</span>
+              <input id="confirm-depth" type="number" min="1" step="1" aria-label="Room depth in cm">
+            </label>
+          </div>
+          <label class="check">
+            <input id="confirm-irregular" type="checkbox">
+            <span>Not a plain rectangle — it has an alcove, chimney breast or an L-shape</span>
+          </label>
+          <p class="unlocks" id="confirm-unlocks" hidden></p>
+          <div class="actions">
+            <button class="primary" id="confirm-accept">Yes, that's right</button>
+            <button class="secondary" id="confirm-measured">I measured it exactly</button>
+          </div>
+          <p class="muted note-line">Confirming uses these numbers as-is. Choose “I measured it” only for
+             real wall-to-wall figures — the solver holds tighter tolerances against them.</p>
+        </div>
+        <div class="card accuracy" id="panel-openings">
+          <h2>Doors &amp; windows</h2>
+          <p class="muted note-line" style="margin-top:0">Optional, and the single biggest thing you can add
+             after dimensions — a door's swing has to stay clear of whatever we place.</p>
+          <div id="openings-list"></div>
+          <div class="actions">
+            <button class="secondary" id="add-door">+ Add a door</button>
+            <button class="secondary" id="add-window">+ Add a window</button>
+          </div>
+          <button class="primary" id="apply-openings" style="margin-top:var(--s3)" hidden>Re-solve with these →</button>
+        </div>
+        <div class="card" id="panel-ask" hidden>
+          <h2>To place everything, we need</h2>
+          <div id="asks"></div>
+          <p class="muted note-line">Answer above, or add the measurements in your brief, then generate again.</p>
+        </div>
+        <div class="empty" id="empty-design">
+          <div class="mark">◱</div>
+          <h3>Nothing designed yet</h3>
+          <p>Fill in your brief and generate — we'll solve a layout against your room's real dimensions and paint it into your photo.</p>
+        </div>
+      </div>
+
+      <!-- 4 · Checkout -->
+      <div class="view" id="view-checkout" hidden>
+        <h3>Your cart</h3>
+        <p class="muted">Everything in your design, priced by merchant.</p>
+        <div class="card" id="panel-cart" hidden>
+          <div id="cart-lines"></div>
+          <div id="cart-total"></div>
+          <p class="muted note-line" id="render-hint" hidden>Add a room photo in your brief to visualize this design in your own room.</p>
+        </div>
+        <div class="card" id="panel-checkout" hidden>
+          <h2>Simulated order</h2>
+          <div id="checkout"></div>
+        </div>
+        <div class="empty" id="empty-checkout">
+          <div class="mark">◇</div>
+          <h3>Cart is empty</h3>
+          <p>Generate a layout and the pieces it places land here, priced and ready.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- One forward action per stage, so the sequence is walkable without
+         ever touching the stepper. Labels and handlers are set from JS. -->
+    <div class="stage-foot">
+      <button class="secondary back-btn" id="stage-back" hidden>← Back</button>
+      <span class="step-of" id="step-of">Step 1 of 5</span>
+      <span class="spacer"></span>
+      <button class="secondary" id="do-render" hidden disabled>Visualize</button>
+      <button class="primary" id="stage-next">Generate my layout →</button>
+    </div>
+  </section>
+
+  <aside class="rail">
+    <div class="rail-head">
+      <span class="rail-mark">✦</span>
+      <div>
+        <strong>Room Hack</strong><br>
+        <span class="muted" id="rail-context">Here through every step</span>
+      </div>
+    </div>
 
     <div class="transcript" id="message-list">
       <div class="bubble">
@@ -253,80 +672,10 @@
     </div>
 
     <div class="composer">
-      <textarea id="chat-message" rows="1" placeholder="Describe your space…" aria-label="Message Room Hack"></textarea>
+      <textarea id="chat-message" rows="1" placeholder="Ask anything…" aria-label="Message Room Hack"></textarea>
       <button class="primary" id="chat-send">Send</button>
     </div>
-  </section>
-
-  <section class="canvas">
-    <div class="tabs" id="canvas-tabs" role="tablist" hidden>
-      <button id="tab-plan"   role="tab" aria-selected="false" disabled>Floor plan</button>
-      <button id="tab-render" role="tab" aria-selected="false" disabled>Visualization</button>
-      <button id="tab-cart"   role="tab" aria-selected="false" disabled>Cart</button>
-      <button id="tab-alts"   role="tab" aria-selected="false" disabled>Swap pieces</button>
-    </div>
-
-    <div class="canvas-scroll">
-      <div class="empty" id="canvas-empty">
-        <div class="mark">◱</div>
-        <h3>Your design appears here</h3>
-        <p>Describe your room in the conversation, or fill in the brief and generate a layout. The floor plan is solved against your room's real dimensions.</p>
-      </div>
-
-      <div class="view" id="view-plan" hidden>
-        <h3>Floor plan</h3>
-        <p class="muted">Solved against your room's dimensions. Dashed outlines are provisional.</p>
-        <div class="card" id="panel-plan" hidden>
-          <div id="floorplan"></div>
-          <div id="plan-notes"></div>
-        </div>
-        <div class="card" id="panel-room" hidden>
-          <h2>Your room</h2>
-          <div id="room-facts"></div>
-        </div>
-        <div class="card" id="panel-ask" hidden>
-          <h2>To place everything, we need</h2>
-          <div id="asks"></div>
-          <p class="muted note-line">Add the measurements in your brief, then generate again.</p>
-        </div>
-      </div>
-
-      <div class="view" id="view-render" hidden>
-        <h3>Visualization</h3>
-        <p class="muted">An AI approximation of these products in your room — not a photograph.</p>
-        <div class="card" id="panel-render" hidden><div id="renders"></div></div>
-      </div>
-
-      <div class="view" id="view-cart" hidden>
-        <h3>Your cart</h3>
-        <p class="muted">Everything in your design, priced by merchant.</p>
-        <div class="card" id="panel-cart" hidden>
-          <div id="cart-lines"></div>
-          <div id="cart-total"></div>
-          <div class="actions">
-            <button id="do-render" disabled>Visualize</button>
-            <button id="do-checkout" class="secondary" disabled>Checkout</button>
-          </div>
-          <p class="muted note-line" id="render-hint" hidden>Add a room photo in your brief to visualize this design in your own room.</p>
-        </div>
-        <div class="card" id="panel-bundles" hidden>
-          <h2>Complete the set</h2>
-          <p class="muted">Suggested from the product data — matching ranges and styling, not purchase history.</p>
-          <div id="bundles"></div>
-        </div>
-        <div class="card" id="panel-checkout" hidden>
-          <h2>Simulated order</h2>
-          <div id="checkout"></div>
-        </div>
-      </div>
-
-      <div class="view" id="view-alts" hidden>
-        <h3>Swap a piece</h3>
-        <p class="muted">Every swap re-solves the layout and re-prices the cart — a different sofa may not fit.</p>
-        <div class="card" id="panel-alts" hidden><div id="alts"></div></div>
-      </div>
-    </div>
-  </section>
+  </aside>
 </div>
 
 <div class="pay-overlay" id="pay-overlay" hidden><div class="pay-sheet" role="dialog" aria-modal="true" aria-labelledby="pay-title">

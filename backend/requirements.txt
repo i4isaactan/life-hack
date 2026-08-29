@@ -9,5 +9,18 @@ python-multipart==0.0.32
 pydantic>=2.7
 python-dotenv==1.1.1
 Pillow==12.1.0
+
+# FIDO2 / WebAuthn signature verification for the Visa Payment Passkey step-up.
+# ES256 and RS256 over the authenticator's signed bytes. No CBOR dependency:
+# the attestation and COSE-key subset the spec permits is decoded in
+# backend/webauthn.py, which keeps the parser small enough to audit.
+cryptography>=42.0
 replicate>=1.0.0
 google-genai>=2.20.0
+
+# Reverse image search (optional). Without these the catalog still seeds and
+# every text path works; only image ranking is disabled, and the code checks
+# for them rather than assuming. ~2GB installed, CPU-only is fine for a
+# catalog this size.
+open_clip_torch>=3.3.0
+numpy>=1.26

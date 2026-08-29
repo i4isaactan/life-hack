@@ -4,3 +4,14 @@ __pycache__/
 .claude
 # Holds OPENAI_API_KEY when running against real providers.
 .env
+
+# Scraper page cache. Re-fetchable, ~1,200 HTML pages; the scraped catalog
+# itself (castlery_products.json) IS committed, the cache is not.
+.cache/
+
+# CLIP embedding cache, rebuilt from the model and the merchant images.
+backend/assets/clip_cache.npz
+
+# Ad-hoc screenshots and photos dropped in the repo root while working.
+/IMG_*.png
+/Screenshot *.png

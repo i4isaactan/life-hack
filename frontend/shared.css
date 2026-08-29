@@ -161,5 +161,76 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .pay-secure { display:flex; align-items:center; gap:7px; justify-content:center; color:var(--muted); font-size:11px; margin-top:9px; }
 .spin { display:inline-block; width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; }
 @keyframes spin { to { transform:rotate(360deg); } }
+/* --- Visa Agentic Stack ------------------------------------------------------
+   The mandate panel, the passkey prompt and the token pills. Built from the
+   same tokens as the rest of the sheet so the security surface reads as part
+   of the checkout rather than a warning bolted onto it - a guardrail styled
+   like an error is one users learn to dismiss. */
+
+.mandate { border:1px solid var(--line); border-radius:var(--r-md); padding:13px; margin-bottom:12px; background:#fff; }
+.mandate-none { background:var(--soft); border-style:dashed; }
+.mandate-none p { font-size:12px; margin:6px 0 10px; }
+.mandate-none button { width:auto; padding:7px 13px; font-size:12px; }
+.mandate-head { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:10px; }
+.mandate-head strong { font-size:13px; }
+.mandate-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-bottom:10px; }
+.mandate-grid div { display:flex; flex-direction:column; gap:2px; }
+.mandate-grid span { font-size:10px; text-transform:uppercase; letter-spacing:.07em; }
+.mandate-grid strong { font-size:12.5px; }
+
+/* Spend against the cumulative cap. A number alone does not convey how close
+   the agent is to its ceiling; a bar does it at a glance. */
+.meter { height:6px; border-radius:999px; background:var(--soft); overflow:hidden; }
+.meter span { display:block; height:100%; background:var(--accent); border-radius:999px; transition:width .3s ease; }
+
+.mandate-foot { display:flex; align-items:center; justify-content:space-between; gap:9px; margin-top:8px; font-size:11px; }
+.mandate-note { font-size:11px; color:var(--muted); margin:9px 0 0; line-height:1.5; }
+.mandate-note code { font:600 10.5px var(--mono); background:var(--soft); padding:1px 5px; border-radius:4px; }
+
+/* A refusal the user set on themselves. Warm rather than alarming: nothing has
+   gone wrong, a limit they chose is doing its job. */
+.mandate-blocked { border:1px solid #e6c98f; background:#fbf0dc; border-radius:var(--r-md); padding:12px 13px; margin-bottom:12px; }
+.mandate-blocked strong { display:block; font-size:13px; margin-bottom:4px; }
+.mandate-blocked p { font-size:12px; margin:0; color:var(--muted); }
+
+/* Token and category pills, distinguished from the card pill so a glance
+   tells you whether a card or a scoped token is being presented. */
+.card-pill.token { background:#eef2f7; border-color:#c8d4e0; color:#2d4459; font:600 10.5px var(--mono); letter-spacing:.02em; }
+.card-pill.mcc { background:transparent; border-style:dashed; color:var(--muted); font:600 10.5px var(--mono); }
+
+.passkey-hero { text-align:center; padding:14px 8px 16px; }
+.passkey-hero strong { display:block; font-size:15px; margin-bottom:6px; }
+.passkey-hero p { font-size:12px; margin:0 auto; max-width:38ch; }
+.passkey-ico {
+  width:56px; height:56px; margin:0 auto 12px; border-radius:16px;
+  display:grid; place-items:center; font-size:26px;
+  background:var(--soft); border:1px solid var(--line); color:var(--accent);
+}
+.passkey-ico.pulsing { animation:pk-pulse 1.4s ease-in-out infinite; }
+@keyframes pk-pulse {
+  0%,100% { transform:scale(1); box-shadow:0 0 0 0 #a8552a33; }
+  50% { transform:scale(1.04); box-shadow:0 0 0 10px #a8552a00; }
+}
+/* Respect a stated preference for less motion: a pulsing lozenge is decoration,
+   and decoration is never worth triggering someone's vestibular symptoms. */
+@media (prefers-reduced-motion:reduce) {
+  .passkey-ico.pulsing { animation:none; }
+  .meter span { transition:none; }
+}
+
+/* A text-weight button for secondary actions inside the sheet (revoke, "use a
+   code instead") - actions that must be reachable but should not compete with
+   the primary one. */
+.linkish {
+  width:auto; margin:8px auto 0; display:block; padding:4px 8px;
+  background:transparent; border:0; color:var(--accent-dark);
+  font-size:11.5px; font-weight:600; text-decoration:underline; cursor:pointer;
+}
+.mandate-foot .linkish { margin:0; }
+
+/* Labelled field, for the mandate dialog. */
+.fld { display:block; margin-bottom:11px; }
+.fld > span { display:block; font-size:11px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.07em; }
+
 .audit { font-size:11px; color:var(--muted); background:var(--soft); border-radius:9px; padding:11px; margin-top:11px; }
 .audit div { padding:2px 0; } .audit strong { color:var(--ink); display:block; margin-bottom:5px; font-size:11px; text-transform:uppercase; letter-spacing:.1em; }

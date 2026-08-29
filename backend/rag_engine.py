@@ -31,7 +31,10 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from . import config
+import numpy as np
+
+from . import clip_engine, config
+from .clip_engine import ClipEmbedder, embed_catalog
 from .models import (
     CameraCalibration,
     CatalogItem,
@@ -50,6 +53,11 @@ log = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
+# Named vectors on the catalog collection. "text" always exists; "image" only
+# when CLIP is installed, so every query that ranks by it must check first.
+TEXT_VECTOR = "text"
+IMAGE_VECTOR = "image"
+
 
 # --- Embeddings ------------------------------------------------------------
 
@@ -63,9 +71,11 @@ def hash_embed(text: str) -> list[float]:
 
     Not semantically comparable to a real model — "sofa" and "couch" land in
     unrelated buckets — but it is stable, dependency-free, and good enough for
-    lexical matching over a 38-item catalog. Retrieval also applies payload
-    filters (role, price, dimensions), which carry most of the selection work,
-    so the vector only has to break ties sensibly.
+    lexical matching over a catalog this size. It works better than it should
+    here because the embedded text states colours and materials in plain words
+    ("beige", "bamboo"), so a query naming one matches literally. Retrieval
+    also applies payload filters (role, price, dimensions), which carry most of
+    the selection work, so the vector only has to break ties sensibly.
     """
     vec = [0.0] * config.EMBEDDING_DIM
     tokens = _tokenize(text)
@@ -92,12 +102,20 @@ class EmbeddingProvider:
     def __init__(self) -> None:
         self._client = None
         self.source = "mock"
+        # What the LAST embed() call actually used. `source` says which
+        # embedder was configured; this says which one produced the vectors in
+        # hand. They diverge whenever an API call fails and degrades to the
+        # hash embedder, and callers that compare scores against a calibrated
+        # threshold must gate on this one - a hash vector scored against
+        # OpenAI catalog vectors is noise, not a weak match.
+        self.last_source = "mock"
         if config.HAS_OPENAI:
             try:
                 from openai import OpenAI
 
                 self._client = OpenAI(api_key=config.OPENAI_API_KEY)
                 self.source = "openai"
+                self.last_source = "openai"
             except Exception as exc:  # pragma: no cover - defensive
                 log.warning("OpenAI embeddings unavailable, using offline: %s", exc)
 
@@ -109,10 +127,12 @@ class EmbeddingProvider:
                 resp = self._client.embeddings.create(
                     model=config.EMBEDDING_MODEL, input=texts
                 )
+                self.last_source = "openai"
                 return [d.embedding for d in resp.data]
             except Exception as exc:
                 # A mid-demo API failure degrades to offline rather than 500ing.
                 log.warning("embedding call failed, falling back offline: %s", exc)
+        self.last_source = "mock"
         return [hash_embed(t) for t in texts]
 
 
@@ -732,12 +752,12 @@ class IntentProvider:
         # what, "another one" instead of which.
         context = []
         if budget_cents:
-            context.append(f"Current budget: ${budget_cents / 100:,.0f}")
+            context.append(f"Current budget: S${budget_cents / 100:,.0f}")
         if current_items:
             context.append(
                 "Currently in the design: "
                 + ", ".join(
-                    f"{i.title} ({i.role.value}, ${i.price_cents / 100:,.0f})"
+                    f"{i.title} ({i.role.value}, S${i.price_cents / 100:,.0f})"
                     for i in current_items
                 )
             )
@@ -809,41 +829,66 @@ class CatalogIndex:
         self.client = QdrantClient(location=config.QDRANT_LOCATION)
         self._by_id: dict[str, CatalogItem] = {}
         self._seeded = False
+        # Image search is optional; when open_clip is absent this stays empty
+        # and every image-ranked path degrades to text alone.
+        self.clip = ClipEmbedder()
+        self._image_vectors: dict[str, np.ndarray] = {}
 
     def seed(self) -> int:
         """Build the collection. Idempotent: safe to call on every reload."""
         validate_seed()
 
+        # Image vectors, when CLIP is installed. Built before the collection so
+        # its presence decides the schema: a collection created without the
+        # named image vector cannot gain one without a rebuild.
+        self._image_vectors = embed_catalog(SEED_ITEMS, self.clip)
+
         # recreate-by-delete keeps re-seeding clean without relying on upsert
         # semantics for a collection whose vector width may have changed.
         if self.client.collection_exists(config.COLLECTION_NAME):
             self.client.delete_collection(config.COLLECTION_NAME)
+        # Two named vectors in one collection: "text" carries the description
+        # and attributes, "image" the product photograph. Named rather than
+        # separate collections so a single query can filter on shared payload
+        # (role, price, stock) whichever vector it ranks by.
+        vectors_config = {
+            TEXT_VECTOR: VectorParams(
+                size=config.EMBEDDING_DIM, distance=Distance.COSINE
+            )
+        }
+        if self._image_vectors:
+            vectors_config[IMAGE_VECTOR] = VectorParams(
+                size=clip_engine.EMBED_DIM, distance=Distance.COSINE
+            )
         self.client.create_collection(
             collection_name=config.COLLECTION_NAME,
-            vectors_config=VectorParams(
-                size=config.EMBEDDING_DIM, distance=Distance.COSINE
-            ),
+            vectors_config=vectors_config,
         )
 
-        vectors = self.embedder.embed([i.embed_text() for i in SEED_ITEMS])
-        points = [
-            PointStruct(
-                # Qdrant needs an int or UUID id; the human id lives in payload.
-                id=idx,
-                vector=vector,
-                payload={
-                    "item_id": item.id,
-                    "role": item.role.value,
-                    "price_cents": item.price_cents,
-                    "width_cm": item.dimensions.width_cm,
-                    "depth_cm": item.dimensions.depth_cm,
-                    "in_stock": item.in_stock,
-                    "merchant": item.merchant,
-                    "style_tags": item.style_tags,
-                },
+        text_vectors = self.embedder.embed([i.embed_text() for i in SEED_ITEMS])
+        points = []
+        for idx, (item, text_vec) in enumerate(zip(SEED_ITEMS, text_vectors)):
+            named: dict[str, list[float]] = {TEXT_VECTOR: text_vec}
+            img = self._image_vectors.get(item.id)
+            if img is not None:
+                named[IMAGE_VECTOR] = img.tolist()
+            points.append(
+                PointStruct(
+                    # Qdrant needs an int or UUID id; the human id lives in payload.
+                    id=idx,
+                    vector=named,
+                    payload={
+                        "item_id": item.id,
+                        "role": item.role.value,
+                        "price_cents": item.price_cents,
+                        "width_cm": item.dimensions.width_cm,
+                        "depth_cm": item.dimensions.depth_cm,
+                        "in_stock": item.in_stock,
+                        "merchant": item.merchant,
+                        "style_tags": item.style_tags,
+                    },
+                )
             )
-            for idx, (item, vector) in enumerate(zip(SEED_ITEMS, vectors))
-        ]
         self.client.upsert(collection_name=config.COLLECTION_NAME, points=points)
 
         self._by_id = {i.id: i for i in SEED_ITEMS}
@@ -900,6 +945,7 @@ class CatalogIndex:
         response = self.client.query_points(
             collection_name=config.COLLECTION_NAME,
             query=vector,
+            using=TEXT_VECTOR,
             query_filter=Filter(must=must),
             limit=limit,
             with_payload=True,
@@ -913,63 +959,149 @@ class CatalogIndex:
                 results.append(item)
         return results
 
-    def search_by_detection(
-        self,
-        det: Detection,
-        limit: int | None = None,
-    ) -> ReverseSearchResult:
-        """Find catalog items that look like a detected object.
+    # Fusion weight. Reciprocal-rank fusion needs a constant that damps the
+    # contribution of low-ranked hits; 60 is the value from the original RRF
+    # paper and is not tuned here, because tuning it against 175 items would
+    # be fitting noise.
+    _RRF_K = 60
 
-        The bridge between pixels and the index is the detection's caption:
-        the vision model describes the object in the same visual vocabulary
-        CatalogItem.embed_text uses, and both sides embed into one space. A
-        true image-embedding index (CLIP over the product shots) would match
-        silhouette and texture directly and is the obvious upgrade, but it
-        needs a second vector per item and a GPU-backed embedder; this gets
-        most of the value from providers that are already configured.
+    def _rank_scores(self, ordered_ids: list[str]) -> dict[str, float]:
+        """Reciprocal-rank contribution for one ranked list."""
+        return {
+            item_id: 1.0 / (self._RRF_K + rank)
+            for rank, item_id in enumerate(ordered_ids, start=1)
+        }
 
-        Filtered by role when we recognise one, because a bookshelf should not
-        come back as a sofa - and unfiltered when we do not, so an object
-        outside our catalog can still surface its nearest relatives.
-        """
-        if not self._seeded:
-            raise RuntimeError("CatalogIndex.seed() must run before search()")
-
-        limit = limit or config.REVERSE_SEARCH_LIMIT
-        # Without a caption there is nothing to match on: the label alone
-        # ("sofa") describes every sofa we sell equally well, so ranking on it
-        # would return an arbitrary five and dress them up as an answer.
-        if not det.caption:
-            return ReverseSearchResult(detection=det, matches=[], confident=False)
-
-        must: list[FieldCondition] = [
-            FieldCondition(key="in_stock", match=MatchValue(value=True))
-        ]
-        if det.role is not None:
-            must.append(
-                FieldCondition(key="role", match=MatchValue(value=det.role.value))
-            )
-
-        # The label is prepended so the object's category carries weight even
-        # when the caption is all adjectives.
-        query = f"{det.label}. {det.caption}"
+    def _query_ids(
+        self, vector, using: str, must: list[FieldCondition], limit: int
+    ) -> dict[str, float]:
+        """Run one vector query, returning {item_id: raw cosine} in rank order."""
         try:
             response = self.client.query_points(
                 collection_name=config.COLLECTION_NAME,
-                query=self.embedder.embed([query])[0],
+                query=vector,
+                using=using,
                 query_filter=Filter(must=must),
                 limit=limit,
                 with_payload=True,
             )
         except Exception as exc:
-            log.warning("reverse search failed for %s: %s", det.label, exc)
+            log.warning("%s query failed: %s", using, exc)
+            return {}
+        out: dict[str, float] = {}
+        for point in response.points:
+            item_id = (point.payload or {}).get("item_id")
+            if item_id:
+                # Cosine over normalized vectors is [-1,1]; negative means
+                # unrelated, and the model field is [0,1].
+                out[item_id] = max(0.0, min(float(point.score or 0.0), 1.0))
+        return out
+
+    def search_by_detection(
+        self,
+        det: Detection,
+        limit: int | None = None,
+        image_b64: str | None = None,
+    ) -> ReverseSearchResult:
+        """Find catalog items that look like a detected object.
+
+        Two independent signals, fused:
+
+          IMAGE  CLIP embeds the cropped object (when `image_b64` is supplied)
+                 or the caption, and ranks against the product photographs.
+                 This is the signal that actually answers "looks like this" -
+                 silhouette, proportion and material read directly off the
+                 pixels, which no description reproduces. Two sofas both
+                 described as "beige fabric two-seat" can look nothing alike.
+
+          TEXT   The caption against the item descriptions. Weaker at
+                 appearance, but it knows words CLIP does not ground well -
+                 series names, materials, the vendor's own prose.
+
+        Fused with reciprocal-rank fusion rather than by averaging the scores.
+        CLIP cosines and text-embedding cosines are on different scales (CLIP
+        image-text similarity clusters around 0.2-0.35; text-text runs 0.5-0.7),
+        so averaging them would let the text side dominate purely through
+        scale. RRF uses only the ordering, which is the part that is
+        comparable.
+
+        Falls back to text alone when CLIP is unavailable, so this path works
+        without torch installed - it is simply less good.
+        """
+        if not self._seeded:
+            raise RuntimeError("CatalogIndex.seed() must run before search()")
+
+        limit = limit or config.REVERSE_SEARCH_LIMIT
+
+        must: list[FieldCondition] = [
+            FieldCondition(key="in_stock", match=MatchValue(value=True))
+        ]
+        # Filtered by role when we recognise one, because a bookshelf should
+        # not come back as a sofa - and unfiltered when we do not, so an object
+        # outside our catalog can still surface its nearest relatives.
+        if det.role is not None:
+            must.append(
+                FieldCondition(key="role", match=MatchValue(value=det.role.value))
+            )
+
+        # Pull deeper than `limit` from each signal: fusion can only rank what
+        # both lists contain, and a strong image match sitting at text rank 12
+        # is exactly the result worth surfacing.
+        depth = max(limit * 3, 15)
+
+        image_scores: dict[str, float] = {}
+        if self._image_vectors and self.clip.available:
+            probe = None
+            if image_b64:
+                # The cropped object itself is the best possible probe: it is
+                # the actual thing the user is pointing at, not a description
+                # of it.
+                try:
+                    probe = self.clip.embed_image(base64.b64decode(image_b64))
+                except Exception as exc:
+                    log.info("could not embed detection crop: %s", exc)
+            if probe is None and det.caption:
+                # CLIP aligns text and images in one space, so a caption still
+                # searches the photographs - just less precisely than pixels.
+                probe = self.clip.embed_text(f"{det.label}. {det.caption}")
+            if probe is not None:
+                image_scores = self._query_ids(
+                    probe.tolist(), IMAGE_VECTOR, must, depth
+                )
+
+        text_scores: dict[str, float] = {}
+        if det.caption:
+            # The label is prepended so the object's category carries weight
+            # even when the caption is all adjectives.
+            query = f"{det.label}. {det.caption}"
+            text_scores = self._query_ids(
+                self.embedder.embed([query])[0], TEXT_VECTOR, must, depth
+            )
+
+        if not image_scores and not text_scores:
+            # Without a caption AND without a crop there is nothing to match
+            # on: the label alone ("sofa") describes every sofa we sell equally
+            # well, so ranking on it would return an arbitrary five and dress
+            # them up as an answer.
             return ReverseSearchResult(detection=det, matches=[], confident=False)
 
+        fused = self._rank_scores(list(image_scores))
+        for item_id, contribution in self._rank_scores(list(text_scores)).items():
+            fused[item_id] = fused.get(item_id, 0.0) + contribution
+
+        ordered = sorted(fused, key=lambda i: -fused[i])[:limit]
+        # RRF scores are tiny and unitless; rescaling against the best result
+        # keeps `score` in the 0-1 the model documents without implying it is a
+        # probability.
+        best = max(fused.values()) if fused else 1.0
+
         matches: list[DetectedMatch] = []
-        for point in response.points:
-            item = self._by_id.get((point.payload or {}).get("item_id") or "")
+        for item_id in ordered:
+            item = self._by_id.get(item_id)
             if item is None:
                 continue
+            img = image_scores.get(item_id)
+            txt = text_scores.get(item_id)
             matches.append(
                 DetectedMatch(
                     item_id=item.id,
@@ -978,16 +1110,31 @@ class CatalogIndex:
                     price_cents=item.price_cents,
                     currency=item.currency,
                     image_url=item.image_url,
-                    # Cosine over normalized vectors is [-1,1]; the model field
-                    # is [0,1] and a negative score means "unrelated" anyway.
-                    score=max(0.0, min(float(point.score or 0.0), 1.0)),
+                    checkout_url=item.checkout_url,
+                    score=max(0.0, min(fused[item_id] / best, 1.0)),
+                    image_score=img,
+                    text_score=txt,
+                    matched_by=(
+                        "both" if img is not None and txt is not None
+                        else "image" if img is not None
+                        else "text"
+                    ),
                 )
             )
 
+        # Confident when the leading result is genuinely close, not merely the
+        # nearest of whatever we stock. The image bar is lower than the text
+        # one because CLIP image-text cosines simply do not reach 0.6.
+        top = matches[0] if matches else None
+        confident = bool(
+            top
+            and (
+                (top.image_score or 0.0) >= config.REVERSE_IMAGE_CONFIDENT_AT
+                or (top.text_score or 0.0) >= config.REVERSE_TEXT_CONFIDENT_AT
+            )
+        )
         return ReverseSearchResult(
-            detection=det,
-            matches=matches,
-            confident=self._is_confident(det, matches),
+            detection=det, matches=matches, confident=confident
         )
 
     def _is_confident(
@@ -1008,7 +1155,12 @@ class CatalogIndex:
         # The hash embedder shares no semantic space with the catalog prose -
         # "boucle" and "bouclé" land in unrelated buckets - so its scores are
         # not comparable to this threshold and must never read as confident.
-        if not matches or self.embedder.source != "openai":
+        #
+        # Gated on last_source, not source: a rate-limited or timed-out
+        # embedding call degrades to the hash embedder silently, and the
+        # resulting scores are noise. Checking the configured provider instead
+        # would let that noise through as an identification.
+        if not matches or self.embedder.last_source != "openai":
             return False
         # An unrecognised role means the search ran unfiltered across the whole
         # catalog. The nearest sofa to a bookshelf is still a sofa, and calling

@@ -272,9 +272,22 @@ class DetectedMatch(BaseModel):
     price_cents: int
     currency: str = "SGD"
     image_url: str
-    # Cosine similarity against the detection's caption, 0-1. This is a
-    # ranking signal, not a probability that the item IS the object.
+    # Where to actually buy it. Reverse search's whole point is answering
+    # "where do I get that?", so a match with no way to act on it is half an
+    # answer.
+    checkout_url: str = ""
+    # Fused rank score, 0-1. This is a ranking signal, not a probability that
+    # the item IS the object.
     score: float = Field(ge=0, le=1)
+    # The component scores behind `score`, so a client (and a developer
+    # debugging a bad match) can see which signal actually found this. None
+    # means that signal did not rank the item at all - image_score is None on
+    # every item when CLIP is not installed.
+    image_score: float | None = None
+    text_score: float | None = None
+    # Which signals contributed: "image", "text", or "both". Fusion makes the
+    # combined number hard to interpret alone; this says where it came from.
+    matched_by: Literal["image", "text", "both"] = "text"
 
 
 class ReverseSearchResult(BaseModel):
@@ -414,7 +427,7 @@ class CatalogItem(BaseModel):
     title: str
     role: Role
     price_cents: int = Field(ge=0)
-    currency: str = "USD"
+    currency: str = "SGD"
     dimensions: Dimensions
     materials: list[str] = Field(default_factory=list)
     primary_color: str
@@ -846,7 +859,7 @@ class Cart(BaseModel):
     lines: list[CartLine] = Field(default_factory=list)
     subtotal_cents: int = 0
     budget_cents: int = 0
-    currency: str = "USD"
+    currency: str = "SGD"
 
     @property
     def over_budget(self) -> bool:
@@ -878,7 +891,7 @@ class CheckoutResult(BaseModel):
     payment_token: str
     groups: list[MerchantGroup]
     total_cents: int
-    currency: str = "USD"
+    currency: str = "SGD"
 
 
 # --- Chat ------------------------------------------------------------------
@@ -929,6 +942,11 @@ class PaymentMethod(BaseModel):
     # prove they are present.
     step_up_threshold_cents: int = 50_000
 
+    # Whether this card has been enrolled into the (simulated) Visa Token
+    # Service. An un-enrolled card can still be used by a human at the
+    # confirmation screen; only an enrolled card can back an agent token.
+    tokenized: bool = False
+
     @property
     def display(self) -> str:
         return f"{self.network.value.title()} ···· {self.last4}"
@@ -949,6 +967,13 @@ class RiskSignal(BaseModel):
         "over_budget",
         "agent_initiated",
         "routine",
+        # Visa Agentic Stack signals. Kept in the same list as the others
+        # because to the user they are the same kind of thing: a reason this
+        # purchase is or is not routine.
+        "mandate_scoped",
+        "mandate_violation",
+        "token_presented",
+        "velocity",
     ]
     detail: str
     # True when this signal is why a step-up challenge is required.
@@ -980,6 +1005,18 @@ class MerchantCharge(BaseModel):
     # Fictional, but the user is entitled to know when the thing arrives
     # before they agree to pay for it.
     eta_days: int = 7
+
+    # --- Visa Agentic Stack ------------------------------------------------
+    # Merchant category code this charge transacts under. Shown to the user
+    # because it is what the mandate's category lock is actually checked
+    # against - naming the merchant alone would not explain a refusal.
+    mcc: str = ""
+    # The network token presented for this leg, never the funding PAN. Its
+    # last4 differs from the card's on purpose: that is how a user matches a
+    # statement line to the agent that created it.
+    token_last4: str = ""
+    # Single-use cryptogram id for this leg of the split settlement.
+    cryptogram_id: str = ""
 
 
 class PaymentIntentStatus(str, Enum):
@@ -1022,7 +1059,7 @@ class PaymentIntent(BaseModel):
     shipping_cents: int = 0
     tax_cents: int = 0
     total_cents: int = 0
-    currency: str = "USD"
+    currency: str = "SGD"
 
     # The budget the design was solved against, so the preview can say whether
     # this purchase honours the constraint the user set at the start.
@@ -1043,6 +1080,21 @@ class PaymentIntent(BaseModel):
     # Set after authorization.
     order_id: str | None = None
 
+    # --- Visa Agentic Stack ------------------------------------------------
+    # Which agent token was presented to price this, if any. Absent means the
+    # user is checking out by hand, which is always permitted - the mandate
+    # constrains the AGENT, not the person.
+    agent_token_id: str = ""
+    # How this purchase measured against the mandate. Present on every priced
+    # intent so the preview can show headroom, not just refusals.
+    mandate: "MandateEvaluation | None" = None
+    # A mandate violation is fatal to an agent-initiated purchase: it cannot be
+    # cleared by verifying identity, because the user already said no in
+    # advance. Separate from requires_step_up for exactly that reason.
+    mandate_blocked: bool = False
+    # Whether the step-up must be a passkey rather than an OTP.
+    step_up_method: Literal["passkey", "sms_otp"] = "passkey"
+
     @property
     def over_budget(self) -> bool:
         return self.budget_cents > 0 and self.total_cents > self.budget_cents
@@ -1060,6 +1112,10 @@ class PaymentIntentRequest(BaseModel):
     # Per-merchant card assignment; merchants absent fall back to the default
     # card. Lets the user split a multi-shop order across cards.
     payment_method_ids: dict[str, str] = Field(default_factory=dict)
+    # The signed mandate the agent holds. It is a bearer credential the agent
+    # cannot forge or widen: every claim in it is verified server-side, so
+    # presenting a tampered one fails rather than raising the agent's limits.
+    mandate_credential: str = ""
 
 
 class VerificationChallenge(BaseModel):
@@ -1073,7 +1129,9 @@ class VerificationChallenge(BaseModel):
     simulated: Literal[True] = True
     intent_id: str
     challenge_id: str
-    method: Literal["sms_otp", "app_push"] = "sms_otp"
+    # "passkey" is the default in the Visa Payment Passkey flow; the OTP
+    # methods remain only as a fallback for a device with no authenticator.
+    method: Literal["passkey", "sms_otp", "app_push"] = "passkey"
     # Masked destination, as a real challenge would show it.
     sent_to: str = "··· ··· ·· 4417"
     # DEMO ONLY. A real challenge never returns its own answer.
@@ -1102,6 +1160,10 @@ class AuthorizeRequest(BaseModel):
     # changed since it was displayed, authorization is refused rather than
     # charging a total the user never saw.
     confirmed_total_cents: int
+    # The passkey assertion that proved the cardholder was present, bound to
+    # this intent and this amount. Required whenever the mandate demands user
+    # presence, which every real mandate does.
+    assertion_id: str = ""
 
 
 class AuthorizationReceipt(BaseModel):
@@ -1118,8 +1180,155 @@ class AuthorizationReceipt(BaseModel):
     total_cents: int = 0
     approved_cents: int = 0
     declined_cents: int = 0
-    currency: str = "USD"
+    currency: str = "SGD"
     authorized_at: float = 0.0
     # A plain-language record of what the user agreed to and when. An audit
     # trail is what makes an agent's spending reviewable after the fact.
     audit: list[str] = Field(default_factory=list)
+
+
+# --- Visa Agentic Payments Stack (simulated) --------------------------------
+#
+# Three layers sit on top of the rail above, and each answers a question the
+# rail alone cannot:
+#
+#   Visa Payment Passkey (FIDO2)  "is the cardholder really here?"
+#   Visa Token Service (AI_AGENT) "what is the agent allowed to spend?"
+#   Agent mandate                 "and can the user take that back?"
+#
+# Nothing here contacts Visa. The shapes mirror the real APIs because the
+# point is to model how authority is delegated and withdrawn, and a model that
+# skipped the parts a real one has would teach the wrong habit.
+
+
+class PasskeyCredentialSummary(BaseModel):
+    """A registered passkey, as the user would recognise it in a settings list.
+
+    Public metadata only. The private key never leaves the device's secure
+    enclave, and no biometric data exists on the server at any point - the
+    device verifies the face or fingerprint locally and releases a signature.
+    """
+
+    credential_id: str
+    label: str = "This device"
+    created_at: float = 0.0
+    sign_count: int = 0
+    # Synced to an iCloud/Google keychain, so it survives losing the device.
+    backed_up: bool = False
+    transports: list[str] = Field(default_factory=list)
+
+
+class PasskeyRegistrationRequest(BaseModel):
+    """The browser's response to navigator.credentials.create()."""
+
+    credential_id: str
+    client_data_json: str      # base64url
+    attestation_object: str    # base64url
+    transports: list[str] = Field(default_factory=list)
+    label: str = ""
+
+
+class PasskeyAssertionRequest(BaseModel):
+    """The browser's response to navigator.credentials.get().
+
+    `intent_id` and the amount are echoed so the server can confirm the
+    signature it is about to accept was issued for this exact payment. A
+    signature for one purchase must never authorize another.
+    """
+
+    credential_id: str
+    client_data_json: str      # base64url
+    authenticator_data: str    # base64url
+    signature: str             # base64url
+    intent_id: str | None = None
+    purpose: Literal["payment", "provisioning"] = "payment"
+
+
+class MandateScope(BaseModel):
+    """The guardrails on an agent token, in the user's terms.
+
+    Every field is a limit the user chose. Together they answer "what is the
+    worst this agent can do with my money" with a number instead of a hope.
+    """
+
+    per_transaction_cap_cents: int
+    cumulative_cap_cents: int
+    spent_cents: int = 0
+    remaining_cents: int = 0
+    allowed_mccs: list[str] = Field(default_factory=list)
+    category_label: str = "Furniture & Home Decor"
+    allowed_merchants: list[str] = Field(default_factory=list)
+    max_merchants_per_transaction: int = 5
+    require_user_presence: bool = True
+    expires_at: float = 0.0
+
+
+class AgentTokenSummary(BaseModel):
+    """A provisioned AI_AGENT network token and the mandate scoping it."""
+
+    simulated: Literal[True] = True
+
+    token_id: str
+    funding_method_id: str
+    funding_display: str = ""
+    # Deliberately not the card's last4. A network token is a different number
+    # for the same funding account, which is what makes it revocable alone.
+    token_last4: str
+    presentation_type: Literal["AI_AGENT", "ECOMMERCE"] = "AI_AGENT"
+    status: Literal["active", "suspended", "revoked", "expired"] = "active"
+    mandate_id: str
+    scope: MandateScope
+    created_at: float = 0.0
+    revoked_at: float | None = None
+    revocation_reason: str = ""
+    # Token Assurance Level. A device biometric bound to a hardware key is the
+    # highest band; a knowledge factor like an OTP is materially lower.
+    assurance_level: int = 0
+    assurance_method: str = "none"
+    # Spend history against this mandate, for after-the-fact review.
+    uses: list[dict] = Field(default_factory=list)
+
+
+class ProvisionTokenRequest(BaseModel):
+    """Enroll a card and mint a scoped agent token.
+
+    Requires a fresh passkey assertion: granting an agent standing permission
+    to spend is exactly as sensitive as the spending it later permits, so it
+    demands the same proof of presence.
+    """
+
+    funding_method_id: str
+    per_transaction_cap_cents: int = Field(gt=0)
+    cumulative_cap_cents: int = Field(gt=0)
+    allowed_merchants: list[str] = Field(default_factory=list)
+    max_merchants_per_transaction: int = Field(default=5, ge=1, le=20)
+    ttl_hours: int = Field(default=24, ge=1, le=720)
+    # The assertion id returned by a just-completed passkey verification.
+    assertion_id: str = ""
+
+
+class MandateEvaluation(BaseModel):
+    """How a proposed purchase measures against the mandate.
+
+    Returned on every preview, passing or failing. A guardrail display that
+    only appears when something is wrong teaches users to fear it rather than
+    to read it; showing remaining headroom on a routine purchase is what makes
+    the limit legible.
+    """
+
+    ok: bool = True
+    token_id: str = ""
+    amount_cents: int = 0
+    per_transaction_cap_cents: int = 0
+    cumulative_cap_cents: int = 0
+    spent_cents: int = 0
+    remaining_cents: int = 0
+    allowed_mccs: list[str] = Field(default_factory=list)
+    merchant_mccs: dict[str, str] = Field(default_factory=dict)
+    expires_at: float = 0.0
+    violations: list[dict[str, str]] = Field(default_factory=list)
+
+
+class RevokeMandateRequest(BaseModel):
+    token_id: str
+    reason: str = "revoked by user"

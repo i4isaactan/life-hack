@@ -1,31 +1,74 @@
-"""The furniture catalog: real IKEA Singapore listings.
+"""The furniture catalog: real Singapore listings from three merchants.
 
-The catalog is built at import time from `products.json`, a scrape of 1,579
-IKEA SG listings, reduced by `ikea_import.py` to the subset that is usable for
-laying out a living room. Nothing here is invented: names, prices, dimensions,
-product photos and checkout links all come from the scrape.
+Two are scrapes, each reduced by its own importer to the subset usable for
+laying out a living room; the third is entered by hand:
 
-PRICES ARE IN SINGAPORE DOLLARS. `price_cents` is SGD cents and `currency` says
-so on every item. The scrape carries no exchange rate, and converting with an
-invented one would misstate every price in the app, so nothing is converted.
+  - `products.json`          1,579 IKEA SG listings      -> `ikea_import.py`
+  - `castlery_products.json` Castlery SG listings        -> `castlery_import.py`
+  - (no feed)                YEN KAI, a local supplier   -> `yenkai_import.py`
 
-WHAT THE CATALOG DOES NOT COVER. The scrape contains no TV units, media
-consoles or sideboards - the `tv_unit` role was removed from the app rather
-than filled with mock data, or with side tables pretending to be consoles. If a
-later scrape adds them, restoring the role means re-adding it to `Role`,
-`PLACEMENT_ORDER`, `ROLE_PRECISION` and `BUDGET_SHARE`, and mapping its
-categories in `ikea_import.CATEGORY_ROLE`.
+Names, dimensions, product photos and checkout links come from the scrapes;
+nothing in them is invented.
+
+YEN KAI IS THE EXCEPTION, AND IT IS DELIBERATE. A local supplier with no
+website is the third shape a merchant takes, and the app should hold one
+without pretending it was scraped. Its measurements come from the merchant and
+its photo is real, but its height is an estimate and its price is a
+PLACEHOLDER, both labelled as such in `yenkai_import.py`. Anything that shows
+a price to a user should read `yenkai_import.PRICE_IS_PLACEHOLDER` first.
+
+WHY TWO MERCHANTS. IKEA SG alone gave the catalog one price band - it tops out
+near S$1,699, so a "premium" budget selected the same pieces as a mid one.
+Castlery sits above it, which gives the budget logic a real range to work
+across and the retrieval layer a genuine choice between merchants.
+
+PRICES ARE IN SINGAPORE DOLLARS. Both merchants are Singapore storefronts
+quoting SGD, so `price_cents` is SGD cents throughout and nothing is
+converted - there is no exchange rate in either scrape, and inventing one
+would misstate every price in the app.
+
+WHAT THE CATALOG DOES NOT COVER. Neither importer maps a media role, so there
+are still no TV units in `SEED_ITEMS`. Castlery *does* publish sideboards and
+media consoles, so restoring the `tv_unit` role is now possible where it was
+not before: it means re-adding it to `Role`, `PLACEMENT_ORDER`,
+`ROLE_PRECISION` and `BUDGET_SHARE`, then mapping the categories in
+`castlery_import.CATEGORY_ROLE`.
 
 Availability is as scraped. IKEA's "in store only" is treated as in stock,
 since it is still buyable; only an explicit out-of-stock is not.
+
+IDS ARE MERCHANT-PREFIXED (`ikea-…`, `castlery-…`, `yenkai-…`) so no two
+merchants can collide on a shared SKU.
 """
 
 from __future__ import annotations
 
-from .ikea_import import build_items
+from .castlery_import import build_items as build_castlery
+from .ikea_import import build_items as build_ikea
 from .models import CatalogItem, Role
+from .yenkai_import import build_items as build_yenkai
 
-SEED_ITEMS: list[CatalogItem] = build_items()
+
+def _build_catalog() -> list[CatalogItem]:
+    """Both merchants, merged.
+
+    A missing Castlery scrape is not fatal: the file is optional and the app
+    still runs on IKEA alone, which is what every existing test asserts
+    against. A missing IKEA scrape IS fatal, since it is the catalog's floor.
+    """
+    items = list(build_ikea())
+    try:
+        items.extend(build_castlery())
+    except FileNotFoundError:
+        pass  # Castlery not scraped yet; IKEA alone is a valid catalog.
+    # Hand-entered, so it needs no file and returns [] if its photo is missing
+    # rather than raising.
+    items.extend(build_yenkai())
+    items.sort(key=lambda c: (c.role.value, c.price_cents))
+    return items
+
+
+SEED_ITEMS: list[CatalogItem] = _build_catalog()
 
 
 def validate_seed() -> None:
@@ -56,8 +99,14 @@ def validate_seed() -> None:
             raise ValueError(f"{i.id}: implausible footprint {d.width_cm}x{d.depth_cm}")
         if not i.swatch.startswith("#") or len(i.swatch) != 7:
             raise ValueError(f"{i.id}: swatch must be #rrggbb, got {i.swatch!r}")
-        if not i.image_url.startswith(("http://", "https://")):
-            raise ValueError(f"{i.id}: image_url must be fetchable, got {i.image_url!r}")
+        # The bar is "a browser can load this", which is what main._http_image_url
+        # enforces on the way out - not "this is a URL". An embedded data: URI
+        # qualifies, and is how a merchant with no CDN carries its photography.
+        if not i.image_url.startswith(("http://", "https://", "data:")):
+            raise ValueError(
+                f"{i.id}: image_url must be browser-loadable "
+                f"(http, https or data:), got {i.image_url[:60]!r}"
+            )
 
     # Both properties the importer's variant cap exists to preserve. Asserting
     # them here means a scrape or a cap change that leaves a role with a single
