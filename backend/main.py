@@ -31,11 +31,14 @@ from .models import (
     RenderFailure,
     RenderRequest,
     RenderResult,
+    RoomRender,
     LayoutResult,
     RoomAnalysis,
+    SwapRequest,
 )
 from .rag_engine import CatalogIndex, VisionProvider, prepare_image
-from .render_engine import RenderProvider, render_layout
+from .render_engine import RenderProvider, render_layout, render_room
+from .solver import LayoutSolver
 from .seed_data import SEED_ITEMS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -73,12 +76,18 @@ async def lifespan(app: FastAPI):
     STATE["graph"] = build_graph(index, vision)
     mode = "OpenAI" if config.HAS_OPENAI else "offline mock"
     log.info("catalog seeded with %d items | providers: %s", count, mode)
-    log.info("renderer: %s (%s)", renderer.source, renderer.method.value)
+    log.info(
+        "renderer: %s | per-item: %s | compose: %s",
+        renderer.source,
+        renderer.method.value,
+        config.GEMINI_IMAGE_MODEL if renderer.can_compose else "unavailable",
+    )
     if not config.HAS_OPENAI:
         log.info("No OPENAI_API_KEY set - running fully offline with mock providers.")
-    if not config.HAS_REPLICATE:
+    if not (config.HAS_GEMINI or config.HAS_REPLICATE):
         log.info(
-            "No REPLICATE_API_TOKEN set - /api/render returns schematic previews."
+            "No GEMINI_API_KEY or REPLICATE_API_TOKEN set - /api/render returns "
+            "schematic previews."
         )
     yield
     STATE.clear()
@@ -256,6 +265,15 @@ async def chat(
                     ctx.setdefault(sid, {})["room"] = payload.get("room")
                 elif kind == "layout_update":
                     ctx.setdefault(sid, {})["layout"] = payload.get("layout")
+                elif kind == "alternatives":
+                    # Kept so /api/swap can validate a chosen item against what
+                    # was actually offered, rather than trusting a client id.
+                    ctx.setdefault(sid, {})["options"] = payload.get("options")
+                elif kind == "cart_update":
+                    ctx.setdefault(sid, {})["selected_ids"] = [
+                        line["item_id"] for line in payload.get("cart", {}).get("lines", [])
+                    ]
+                    ctx.setdefault(sid, {})["budget_cents"] = payload.get("budget_cents")
                 yield sse_frame(kind, payload)
         finally:
             task.cancel()
@@ -328,21 +346,60 @@ async def render(req: RenderRequest) -> StreamingResponse:
     image_b64 = ctx.get("image_b64")
     items = {i.id: i for i in SEED_ITEMS}
 
+    # A composing backend renders the whole room in one call, which is both
+    # cheaper and more coherent than six masked inpaints - and every piece
+    # comes from its real product photo. Fall back to per-item when there is
+    # no composer, or when the caller explicitly asks for it.
+    compose = renderer.can_compose and not req.per_item
+
     async def stream() -> AsyncIterator[str]:
         started = time.perf_counter()
         yield ": connected\n\n"
 
-        total = len(
-            [p for p in layout.placements if not req.item_ids or p.item_id in req.item_ids]
+        total = (
+            1
+            if compose
+            else len(
+                [
+                    p
+                    for p in layout.placements
+                    if not req.item_ids or p.item_id in req.item_ids
+                ]
+            )
         )
         yield sse_frame(
             "render_started",
             {
                 "total": total,
-                "method": renderer.method.value,
+                "method": "composed" if compose else renderer.method.value,
                 "erased": bool(image_b64) and renderer.method.value == "generative",
             },
         )
+
+        if compose:
+            result = await render_room(
+                renderer,
+                image_b64,
+                room,
+                layout,
+                items,
+                only=req.item_ids or None,
+            )
+            event = "room_render" if isinstance(result, RoomRender) else "render_failed"
+            payload = result.model_dump(mode="json")
+            if isinstance(result, RoomRender):
+                payload["progress"] = {"done": 1, "total": 1}
+            yield sse_frame(event, payload)
+            yield sse_frame(
+                "done",
+                {
+                    "session_id": req.session_id,
+                    "rendered": 1 if isinstance(result, RoomRender) else 0,
+                    "total": 1,
+                    "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                },
+            )
+            return
 
         queue: asyncio.Queue[tuple[str, dict] | None] = asyncio.Queue()
 
@@ -414,6 +471,216 @@ async def render(req: RenderRequest) -> StreamingResponse:
     )
 
 
+# --- Swap ------------------------------------------------------------------
+
+
+@app.post("/api/swap")
+async def swap(req: SwapRequest) -> StreamingResponse:
+    """Replace one item with an alternative, re-solve, and re-render.
+
+    A swap is never merely a re-render. A different sofa has different
+    dimensions, so the layout must be re-solved - the replacement may not fit,
+    or may displace the coffee table that was positioned against the old one -
+    and the cart re-billed. Returning a new picture over a stale plan would
+    show the user something the solver never agreed to.
+    """
+    renderer = STATE.get("renderer")
+    index = STATE.get("index")
+    if renderer is None or index is None:  # pragma: no cover
+        raise HTTPException(503, "server still starting")
+
+    ctx = RENDER_CONTEXT.get(req.session_id)
+    if not ctx:
+        raise HTTPException(404, "unknown session; POST /api/chat first")
+
+    room_raw = ctx.get("room")
+    selected_ids = ctx.get("selected_ids")
+    if not room_raw or selected_ids is None:
+        raise HTTPException(409, "this session has no completed design yet")
+
+    replacement = index.get(req.item_id)  # type: ignore[attr-defined]
+    if replacement is None:
+        raise HTTPException(404, f"unknown item: {req.item_id}")
+    if replacement.role is not req.role:
+        raise HTTPException(
+            400,
+            f"{req.item_id} is a {replacement.role.value}, not a {req.role.value}",
+        )
+
+    try:
+        room = RoomAnalysis(**room_raw)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(500, f"corrupt session design: {exc}") from exc
+
+    # Substitute by role. The outgoing item leaves the design entirely, so a
+    # swap never grows the piece count - it exchanges one for one.
+    items = {i.id: i for i in SEED_ITEMS}
+    current = [items[i] for i in selected_ids if i in items]
+    outgoing = next((i for i in current if i.role is req.role), None)
+    if outgoing is None:
+        raise HTTPException(
+            409, f"nothing of role {req.role.value} is currently in the design"
+        )
+    if outgoing.id == replacement.id:
+        raise HTTPException(400, "that item is already selected")
+
+    updated = [replacement if i.role is req.role else i for i in current]
+
+    budget_cents = int(ctx.get("budget_cents") or config.DEFAULT_BUDGET_CENTS)
+    image_b64 = ctx.get("image_b64")
+
+    async def stream() -> AsyncIterator[str]:
+        started = time.perf_counter()
+        yield ": connected\n\n"
+        yield sse_frame(
+            "swap_started",
+            {
+                "role": req.role.value,
+                "from": {"item_id": outgoing.id, "name": outgoing.title},
+                "to": {"item_id": replacement.id, "name": replacement.title},
+            },
+        )
+
+        # Re-solve. The replacement's footprint differs, so positions move and
+        # a piece that no longer fits is reported rather than forced.
+        layout = LayoutSolver(room).solve(updated)
+        yield sse_frame(
+            "layout_update", {"type": "layout_update", "layout": layout.model_dump(mode="json")}
+        )
+
+        placed_ids = {p.item_id for p in layout.placements}
+        lines = [
+            CartLine(
+                item_id=i.id,
+                name=i.title,
+                merchant=i.merchant,
+                role=i.role,
+                price_cents=i.price_cents,
+                checkout_url=i.checkout_url,
+                image_url=i.image_url,
+            )
+            for i in updated
+            if i.id in placed_ids
+        ]
+        cart = Cart(
+            lines=lines,
+            subtotal_cents=sum(line.line_total_cents for line in lines),
+            budget_cents=budget_cents,
+        )
+        yield sse_frame(
+            "cart_update",
+            {
+                "type": "cart_update",
+                "cart": cart.model_dump(mode="json"),
+                "subtotal_cents": cart.subtotal_cents,
+                "budget_cents": cart.budget_cents,
+                "over_budget": cart.over_budget,
+            },
+        )
+
+        # The swap is committed to the session before rendering, so a failed or
+        # skipped render still leaves the design in its new state.
+        ctx["selected_ids"] = [i.id for i in updated]
+        ctx["layout"] = layout.model_dump(mode="json")
+
+        # Offer the alternatives again, now priced against the new pick.
+        alternatives = _reprice_options(ctx.get("options"), updated, budget_cents, cart)
+        if alternatives:
+            yield sse_frame("alternatives", {"options": alternatives})
+
+        if not req.layout_only:
+            result = await render_room(renderer, image_b64, room, layout, items)
+            event = "room_render" if isinstance(result, RoomRender) else "render_failed"
+            yield sse_frame(event, result.model_dump(mode="json"))
+
+        yield sse_frame(
+            "done",
+            {
+                "session_id": req.session_id,
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+            },
+        )
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _reprice_options(
+    stored: object, selected: list, budget_cents: int, cart: Cart
+) -> list[dict]:
+    """Re-point the stored alternatives at the new selection.
+
+    Deltas and affordability were computed against the item that just left the
+    design, so leaving them untouched would price every option against a piece
+    the user no longer has.
+    """
+    if not isinstance(stored, list):
+        return []
+
+    by_role = {i.role.value: i for i in selected}
+    spent = cart.subtotal_cents
+    out: list[dict] = []
+    for entry in stored:
+        if not isinstance(entry, dict):
+            continue
+        chosen = by_role.get(entry.get("role"))
+        if chosen is None:
+            continue
+        headroom = budget_cents - spent + chosen.price_cents
+        alts = [
+            {
+                **alt,
+                "price_delta_cents": alt["price_cents"] - chosen.price_cents,
+                "affordable": alt["price_cents"] <= headroom,
+            }
+            for alt in entry.get("alternatives", [])
+            if alt.get("item_id") != chosen.id
+        ]
+        # The outgoing item becomes an alternative itself - a user who dislikes
+        # the swap needs a way back without replaying the conversation. It is
+        # listed first, because undo is the most likely next click.
+        outgoing_id = entry.get("selected_id")
+        if outgoing_id and outgoing_id != chosen.id:
+            if not any(a["item_id"] == outgoing_id for a in alts):
+                previous = next(
+                    (i for i in SEED_ITEMS if i.id == outgoing_id), None
+                )
+                if previous is not None:
+                    alts.insert(
+                        0,
+                        {
+                            "item_id": previous.id,
+                            "name": previous.title,
+                            "merchant": previous.merchant,
+                            "role": previous.role.value,
+                            "price_cents": previous.price_cents,
+                            "price_delta_cents": previous.price_cents - chosen.price_cents,
+                            "swatch": previous.swatch,
+                            "image_url": previous.image_url,
+                            "materials": previous.materials,
+                            "primary_color": previous.primary_color,
+                            "style_tags": previous.style_tags,
+                            "width_cm": previous.dimensions.width_cm,
+                            "depth_cm": previous.dimensions.depth_cm,
+                            "height_cm": previous.dimensions.height_cm,
+                            "affordable": previous.price_cents <= headroom,
+                        },
+                    )
+        entry["selected_id"] = chosen.id
+        entry["alternatives"] = alts
+        out.append(
+            {"role": entry["role"], "selected_id": chosen.id, "alternatives": alts}
+        )
+    return out
+
+
 # --- Checkout (simulated) --------------------------------------------------
 
 
@@ -480,6 +747,8 @@ async def health() -> dict:
         "renderer": {
             "source": getattr(renderer, "source", "unavailable"),
             "method": getattr(getattr(renderer, "method", None), "value", "unavailable"),
+            "can_compose": bool(getattr(renderer, "can_compose", False)),
+            "compose_model": config.GEMINI_IMAGE_MODEL if config.HAS_GEMINI else None,
         },
     }
 

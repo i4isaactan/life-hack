@@ -134,18 +134,43 @@ class CameraCalibration(BaseModel):
 
     Without this a render cannot know where in the image a piece at
     (128cm, 237cm) belongs, and the whole point of Tier 2 is that the solver -
-    not the image model - decides position. `quad` is assumed to bound the
-    full usable floor: its near edge is y=depth_cm, its far edge y=0.
+    not the image model - decides position.
+
+    Crucially the quad bounds the floor *the camera can see*, which is almost
+    never the whole room: a photographer standing in the doorway cannot see the
+    floor they are standing on. `near_depth_cm` and `far_depth_cm` say which
+    slice of the room the quad actually spans. Assuming it spans all of it
+    projects every piece too far forward, sliding near-wall furniture out of
+    frame entirely.
     """
 
     quad: FloorQuad
     horizon_y: float = Field(ge=0, le=1)
     source: Literal["openai", "mock"] = "mock"
 
+    # Room-depth coordinates of the quad's two edges, in solver centimetres.
+    # near_depth_cm is the edge closest to the camera (largest y), far_depth_cm
+    # the one at the back wall. Defaults describe a camera that sees the back
+    # of the room but stands ~80cm inside it, which is typical of a phone photo
+    # taken from a doorway.
+    near_depth_cm: float | None = Field(default=None, gt=0)
+    far_depth_cm: float = Field(default=0.0, ge=0)
+
     # A calibration derived from a photo estimate is itself an estimate. This
     # caps how much a render may claim, independent of the layout's own
     # confidence.
     confidence: Confidence = Confidence.MEDIUM
+
+    def depth_span(self, room_depth_cm: float) -> tuple[float, float]:
+        """The (near, far) room depths this quad spans, clamped and ordered.
+
+        `near_depth_cm` unset means the quad reaches the near wall, which is
+        the right default only when the photo genuinely shows the whole floor.
+        """
+        near = room_depth_cm if self.near_depth_cm is None else self.near_depth_cm
+        near = min(max(near, 0.0), room_depth_cm)
+        far = min(max(self.far_depth_cm, 0.0), room_depth_cm)
+        return (near, far)
 
 
 # --- Detection -------------------------------------------------------------
@@ -176,8 +201,13 @@ class Detection(BaseModel):
 class RenderMethod(str, Enum):
     """How a render image was produced. Surfaced so a client can label it."""
 
-    # SDXL inpaint conditioned on solver depth plus the product image.
+    # SDXL inpaint conditioned on solver depth plus the product image, one call
+    # per item, masked to that item's projected footprint.
     GENERATIVE = "generative"
+    # One Gemini call composing the whole room from the photo plus the catalog
+    # product shots. Renders every piece at once, so lighting is coherent and
+    # each piece is derived from its actual product photograph.
+    COMPOSED = "composed"
     # Pillow schematic: solver rectangles projected onto the photo. Offline.
     SCHEMATIC = "schematic"
 
@@ -216,15 +246,58 @@ class RenderFailure(BaseModel):
     name: str
     role: Role
     reason: Literal[
-        "no_photo", "no_calibration", "not_placed", "provider_error", "no_product_image"
+        "no_photo",
+        "no_calibration",
+        # The placement is real but sits outside the floor the photo captured -
+        # a distinct answer from "we could not calibrate", and one the user can
+        # act on by stepping back and retaking the shot.
+        "out_of_frame",
+        "not_placed",
+        "provider_error",
+        "no_product_image",
     ]
     detail: str = ""
+
+
+class RoomRender(BaseModel):
+    """One image of the whole design composed into the user's room.
+
+    Distinct from RenderResult, which is one item at a time. A composing model
+    edits the entire photo in a single pass, so the unit of output is the room:
+    there is no per-item image to hand back, and pretending otherwise would
+    imply a precision the call does not have.
+
+    NOT a photograph. The pieces are conditioned on real product shots but the
+    model reconstructs every pixel, so details can differ from what ships.
+    """
+
+    image_url: str
+    method: RenderMethod = RenderMethod.COMPOSED
+    # The items the model was actually shown a reference for, in the order they
+    # appeared in the prompt.
+    item_ids: list[str] = Field(default_factory=list)
+    # Placed items left out because the reference budget ran out, or because no
+    # product image could be fetched. Named so the client can say what is
+    # missing rather than leaving the user to spot it.
+    omitted: list[str] = Field(default_factory=list)
+    # Existing furniture the model was told to remove.
+    replaced: list[str] = Field(default_factory=list)
+    confidence: Confidence = Confidence.MEDIUM
+    elapsed_ms: int = 0
+    simulated: Literal[True] = True
+    disclaimer: str = (
+        "AI visualization - an approximation of these products in your room, "
+        "not a photograph of them."
+    )
 
 
 class RenderRequest(BaseModel):
     session_id: str
     # Restrict to specific items; empty means every placed item.
     item_ids: list[str] = Field(default_factory=list)
+    # Force the per-item path even when a composing backend is configured.
+    # Useful for comparing the two, and for re-rendering a single swap.
+    per_item: bool = False
 
 
 # --- Catalog ---------------------------------------------------------------
@@ -265,6 +338,65 @@ class CatalogItem(BaseModel):
             f"Dimensions {d.width_cm:.0f}x{d.depth_cm:.0f}x{d.height_cm:.0f} cm. "
             f"Sold by {self.merchant}."
         )
+
+
+# --- Alternatives ----------------------------------------------------------
+
+
+class Alternative(BaseModel):
+    """A catalog item the user could swap in for the one that was chosen.
+
+    Retrieval already returns several candidates per role and selection keeps
+    one; the rest are just as valid, and discarding them silently presents a
+    single pick as if it were the only option. Everything here is what a client
+    needs to render a clickable card without a second request.
+    """
+
+    item_id: str
+    name: str
+    merchant: str
+    role: Role
+    price_cents: int
+    # Difference against the currently selected item, negative when cheaper.
+    price_delta_cents: int
+    swatch: str
+    image_url: str
+    materials: list[str] = Field(default_factory=list)
+    primary_color: str = ""
+    style_tags: list[str] = Field(default_factory=list)
+    width_cm: float
+    depth_cm: float
+    height_cm: float
+
+    # Whether swapping this in keeps the design inside budget. False items are
+    # still offered - the user may want to spend more - but a client should
+    # mark them rather than let the total silently go over.
+    affordable: bool = True
+
+
+class RoleOptions(BaseModel):
+    """The chosen item for one role, plus everything else that fit."""
+
+    role: Role
+    selected_id: str
+    alternatives: list[Alternative] = Field(default_factory=list)
+
+
+class SwapRequest(BaseModel):
+    """Replace one selected item with an alternative and re-solve.
+
+    A swap is never just a re-render: a different sofa has different
+    dimensions, so the layout has to be re-solved and the cart re-billed. The
+    item may not even fit, which is a legitimate outcome the client must be
+    able to show.
+    """
+
+    session_id: str
+    role: Role
+    item_id: str
+    # Skip the image render and return only the new layout and cart. Useful for
+    # previewing the cost of a swap before paying for a render.
+    layout_only: bool = False
 
 
 # --- Room analysis ---------------------------------------------------------

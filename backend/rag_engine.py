@@ -133,7 +133,9 @@ Respond with ONLY a JSON object, no prose or code fences:
     "far_right":  [<x>, <y>],
     "far_left":   [<x>, <y>]
   },
-  "horizon_y": <number 0-1>
+  "horizon_y": <number 0-1>,
+  "floor_near_depth_cm": <number>,
+  "floor_far_depth_cm": <number>
 }
 
 focal_wall is the wall a sofa should face or sit against — typically the one
@@ -146,7 +148,19 @@ is the edge at the back wall. Follow the floor's actual perspective: in a
 typical photo the near edge is wider than the far edge. If the floor is mostly
 hidden or you cannot trace it, omit floor_quad entirely rather than guessing.
 
-horizon_y is the eye-level horizon as a fraction of image height."""
+horizon_y is the eye-level horizon as a fraction of image height.
+
+floor_near_depth_cm and floor_far_depth_cm say WHICH PART of the room's depth
+the quad covers, measured from the back wall (0) toward the camera. A photo
+almost never shows the whole floor - the photographer is standing on the part
+that is missing - so these are usually not 0 and depth_cm.
+
+Example: in a 400cm-deep room shot from the doorway, the visible floor might
+start at the back wall and stop 90cm short of the camera. Then
+floor_far_depth_cm is 0 and floor_near_depth_cm is 310.
+
+Getting this wrong pushes furniture out of the bottom of the picture, so
+estimate it rather than defaulting to the full depth."""
 
 # Used when there is no key, no image, or a malformed model response. A
 # mid-size rectangular living room: large enough to place a full set.
@@ -171,6 +185,12 @@ _MOCK_ROOM = RoomAnalysis(
             far_left=(0.28, 0.44),
         ),
         horizon_y=0.38,
+        # The mock room is 330cm deep and this camera stands ~80cm inside it,
+        # so the near 80cm of floor is not in frame. Matching a real photo here
+        # means the offline schematic exercises the same clipping the
+        # generative path will.
+        near_depth_cm=250.0,
+        far_depth_cm=0.0,
         source="mock",
         confidence=Confidence.MEDIUM,
     ),
@@ -251,6 +271,15 @@ class VisionProvider:
         return room
 
 
+def _positive(value) -> float | None:
+    """A positive float from model output, or None for anything else."""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return num if num > 0 else None
+
+
 def _parse_camera(data: dict) -> CameraCalibration | None:
     """Build a CameraCalibration from the vision payload, or None."""
     quad_raw = data.get("floor_quad")
@@ -283,9 +312,20 @@ def _parse_camera(data: dict) -> CameraCalibration | None:
     except (TypeError, ValueError):
         horizon = 0.35
 
+    # An unreported near depth stays None, which means "the quad reaches the
+    # near wall". That is the optimistic reading, so it is only correct when
+    # the model actually declined to answer - which the prompt discourages.
+    near_depth = _positive(data.get("floor_near_depth_cm"))
+    far_depth = _positive(data.get("floor_far_depth_cm")) or 0.0
+    if near_depth is not None and near_depth <= far_depth:
+        log.warning("floor depth span inverted (%s <= %s); ignoring", near_depth, far_depth)
+        near_depth, far_depth = None, 0.0
+
     return CameraCalibration(
         quad=FloorQuad(**corners),
         horizon_y=horizon,
+        near_depth_cm=near_depth,
+        far_depth_cm=far_depth,
         source="openai",
         # Derived from an estimate, so it is an estimate. Only a measured room
         # promotes a render past MEDIUM.

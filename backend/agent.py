@@ -22,11 +22,13 @@ from langgraph.graph import END, START, StateGraph
 from . import config
 from .models import (
     PLACEMENT_ORDER,
+    Alternative,
     Cart,
     CartLine,
     CatalogItem,
     ChatMessage,
     LayoutResult,
+    RoleOptions,
     RoomAnalysis,
     Role,
 )
@@ -48,6 +50,7 @@ class GraphState(TypedDict, total=False):
     query: str
     candidates: dict[str, list[CatalogItem]]
     selected: list[CatalogItem]
+    options: list[RoleOptions]
     layout: LayoutResult
     cart: Cart
     errors: Annotated[list[str], lambda a, b: a + b]
@@ -63,6 +66,51 @@ BUDGET_SHARE: dict[Role, float] = {
     Role.ACCENT_CHAIR: 0.20,
     Role.FLOOR_LAMP: 0.08,
 }
+
+
+def build_role_options(
+    role: Role,
+    candidates: list[CatalogItem],
+    chosen_ids: set[str],
+    budget_cents: int,
+    spent_cents: int,
+) -> RoleOptions:
+    """The alternatives for one role, priced against the current pick.
+
+    `affordable` accounts for the swap being a *replacement*: the outgoing
+    item's price comes back before the incoming one is charged, so a like-priced
+    alternative stays affordable even when the design is already at budget.
+    """
+    chosen = next((i for i in candidates if i.id in chosen_ids), None)
+    if chosen is None:
+        return RoleOptions(role=role, selected_id="", alternatives=[])
+
+    headroom = budget_cents - spent_cents + chosen.price_cents
+    return RoleOptions(
+        role=role,
+        selected_id=chosen.id,
+        alternatives=[
+            Alternative(
+                item_id=item.id,
+                name=item.title,
+                merchant=item.merchant,
+                role=item.role,
+                price_cents=item.price_cents,
+                price_delta_cents=item.price_cents - chosen.price_cents,
+                swatch=item.swatch,
+                image_url=item.image_url,
+                materials=item.materials,
+                primary_color=item.primary_color,
+                style_tags=item.style_tags,
+                width_cm=item.dimensions.width_cm,
+                depth_cm=item.dimensions.depth_cm,
+                height_cm=item.dimensions.height_cm,
+                affordable=item.price_cents <= headroom,
+            )
+            for item in candidates
+            if item.id != chosen.id
+        ],
+    )
 
 
 def build_graph(index: CatalogIndex, vision: VisionProvider):
@@ -204,7 +252,27 @@ def build_graph(index: CatalogIndex, vision: VisionProvider):
                 selected.append(pick)
                 spent += pick.price_cents
 
-        return {"selected": selected}
+        # Retrieval found several candidates per role and we kept one. The rest
+        # are equally valid picks, so offer them rather than presenting a single
+        # choice as though it were the only one.
+        chosen_ids = {i.id for i in selected}
+        options = [
+            build_role_options(role, candidates[role.value], chosen_ids, budget, spent)
+            for role in order
+            if any(i.id in chosen_ids for i in candidates[role.value])
+        ]
+        options = [o for o in options if o.alternatives]
+
+        if options:
+            writer = get_stream_writer()
+            writer(
+                {
+                    "type": "alternatives",
+                    "options": [o.model_dump(mode="json") for o in options],
+                }
+            )
+
+        return {"selected": selected, "options": options}
 
     def solve_layout(state: GraphState) -> dict[str, Any]:
         writer = get_stream_writer()

@@ -63,6 +63,7 @@ Frames are `event: <type>` / `data: <single-line JSON>` / blank line.
 | `room_analysis` | `{room}` | dimensions in cm, finishes, `source: openai\|mock` |
 | `layout_update` | `{layout}` | `placements[]`, `skipped[]`, `withheld[]` |
 | `clarification_needed` | `{questions[], withheld[]}` | measurements that would unlock withheld pieces |
+| `alternatives` | `{options[]}` | per role: the pick, plus other catalog items that fit |
 | `cart_update` | `{cart, subtotal_cents, budget_cents, over_budget}` | bill of materials |
 | `error` | `{message, code, fatal}` | failure inside the stream |
 | `done` | `{session_id, elapsed_ms}` | always last |
@@ -111,6 +112,41 @@ CRLF-split streams.
 - `GET /api/catalog` — the seeded catalog, for debugging retrieval
 - `POST /api/checkout/simulate` — `{item_ids[], session_id?}` → order grouped by merchant
 - `POST /api/render` — visualize the design in the user's photo; see below
+- `POST /api/swap` — replace one item with an alternative and re-solve; see below
+
+### `POST /api/swap`
+
+`{"session_id": "s_…", "role": "sofa", "item_id": "sofa-linnea-3s", "layout_only": false}`
+→ `text/event-stream`.
+
+Every `alternatives` frame carries catalog items the user could pick instead —
+retrieval already found them, and discarding them would present one choice as
+though it were the only one. Clicking one calls this endpoint.
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `swap_started` | `{role, from:{item_id,name}, to:{item_id,name}}` | what is being exchanged |
+| `layout_update` | `{layout}` | re-solved around the new footprint |
+| `cart_update` | `{cart, …}` | re-billed |
+| `alternatives` | `{options[]}` | re-priced against the new pick |
+| `room_render` / `render_failed` | | unless `layout_only` |
+| `done` | `{session_id, elapsed_ms}` | always last |
+
+**A swap is never merely a re-render.** A different sofa has different
+dimensions, so the layout is re-solved — the replacement may not fit, or may
+displace the coffee table that was positioned against the old one — and the
+cart re-billed. Returning a new picture over a stale plan would show the user
+something the solver never agreed to.
+
+The outgoing item is offered back first in the new `alternatives`, so undo is
+one click and never requires replaying the conversation. `layout_only: true`
+skips the render, which is how a client previews what a swap costs before
+paying for an image.
+
+`Alternative.affordable` accounts for the swap being a *replacement*: the
+outgoing item's price returns to the budget before the incoming one is charged,
+so a like-priced option stays affordable even at budget. Unaffordable options
+are still offered — the user may want to spend more — but flagged.
 
 ### `POST /api/render`
 
@@ -120,13 +156,27 @@ CRLF-split streams.
 
 | Event | Payload | Meaning |
 |---|---|---|
-| `render_started` | `{total, method, erased}` | `method` is `generative` or `schematic` |
-| `render_update` | `RenderResult` + `{progress:{done,total}}` | one finished visualization |
+| `render_started` | `{total, method, erased}` | `method` is `composed`, `generative` or `schematic` |
+| `room_render` | `RoomRender` + `{progress:{done,total}}` | the whole design in one image (`composed`) |
+| `render_update` | `RenderResult` + `{progress:{done,total}}` | one finished visualization (per-item) |
 | `render_failed` | `RenderFailure` | that item could not be rendered, and why |
+
+`RenderFailure.reason` distinguishes `no_photo`, `no_calibration` (the floor
+plane could not be traced), `out_of_frame` (the piece sits in front of the
+photographed floor — a wider shot would fix it), `not_placed` and
+`provider_error`.
 | `done` | `{session_id, rendered, total, elapsed_ms}` | always last |
 
 Call `/api/chat` first: rendering needs the photo, room and layout from a
 completed design. An unknown session is `404`, a session with no design `409`.
+
+**Two shapes of response.** With a composing backend configured the whole design
+comes back as a single `room_render` frame — every piece in one image, `total: 1`.
+Otherwise each item is rendered separately and arrives as its own
+`render_update`. Pass `"per_item": true` to force the per-item path when a
+composer is available (useful for comparing them, or re-rendering one swap).
+`RoomRender.omitted` names any placed item the model was not shown, so a client
+can say what is missing rather than leaving the user to notice.
 
 Frames arrive in **painter's order** — rugs first, then back of the room
 forward — so a client can composite them in arrival order and get correct
@@ -146,6 +196,9 @@ should label it that way.
 ```
 analyze_room → build_query → retrieve_items → select_items
              → solve_layout → build_cart → narrate
+
+              ↓ /api/render                    ↓ /api/swap
+        one composed image              re-solve + re-bill + re-render
 ```
 
 A linear LangGraph workflow. Nodes stream via `get_stream_writer()` with
@@ -153,9 +206,11 @@ A linear LangGraph workflow. Nodes stream via `get_stream_writer()` with
 small emits only generic `on_chain_*` frames with no domain meaning.
 
 **Retrieval** filters by role, price, stock and *room dimensions*, so oversized
-pieces never reach the solver. **Selection** buys in order of how much each
-piece makes the room usable (seating first), reserving budget for seating so a
-premium rug cannot price out the sofa.
+pieces never reach the solver, and keeps four candidates per role. **Selection**
+buys in order of how much each piece makes the room usable (seating first),
+reserving budget for seating so a premium rug cannot price out the sofa — then
+**offers the candidates it did not buy** as `alternatives`, since they are
+equally valid picks and the user is the one with the taste.
 
 ### Replacing furniture in the photo
 
@@ -167,37 +222,74 @@ detect → segment → erase          once per photo, cached as an empty-room pl
 depth-condition → inpaint         per item, against that plate
 ```
 
-Grounding DINO finds the existing furniture, SAM 2 cuts masks, LaMa erases them
-into a clean plate, and SDXL inpaints each catalog item back in — conditioned on
-the product image (IP-Adapter) and the item's own catalog fields.
+Two backends, either of which may be configured:
+
+**Gemini (`GEMINI_API_KEY`) — one call per room, preferred.**
+`gemini-3.1-flash-lite-image` ("Nano Banana 2 Lite") composes up to 14 object
+references, so the room photo and the catalog product photos go in together and
+one image comes back. Each recommended piece is rendered *from its actual
+product photograph*, which is the fidelity the per-item path could only
+approximate. It also costs ~$0.034 a room instead of ~$0.20, and lighting is
+solved once for the whole scene rather than six times independently.
+
+**Replicate (`REPLICATE_API_TOKEN`) — one call per item.** Grounding DINO finds
+the existing furniture, SAM 2 cuts masks, LaMa erases them into a clean plate,
+and SDXL inpaints each catalog item back in — conditioned on the product image
+(IP-Adapter) and the item's own catalog fields. Slower and dearer (~25
+predictions, 60–120s), but it is the only path that constrains placement with a
+real mask.
 
 **The image model never decides composition.** A `Placement` already carries
 collision-checked floor coordinates; `geometry.py` fits a homography from the
-photo's floor plane and projects them into image space. The renderer cuts the
-inpaint mask from that projection, so the model only supplies appearance —
-materials, lighting, contact shadow. This is the whole reason for doing it in
-this order: generative placement hallucinates furniture into walls, and a solver
-that has already proven its layout is a better source of truth.
+photo's floor plane and projects them into image space. On the Replicate path
+the renderer cuts the inpaint mask from that projection, so the model only
+supplies appearance — materials, lighting, contact shadow. This is the whole
+reason for doing it in this order: generative placement hallucinates furniture
+into walls, and a solver that has already proven its layout is a better source
+of truth.
+
+A composing model takes no mask, so on the Gemini path the same geometry travels
+as description — *"in the foreground, centred, spanning 45% of the room's
+width; directly in front of the sofa, front legs on the rug"* — generated from
+the solver's real coordinates and relationships. That is a strong constraint but
+not a guarantee, which is why a composed render is capped one notch below a
+masked one in `confidence`.
 
 Calibration rides along with the room analysis: the vision prompt returns a
 `floor_quad` and horizon alongside the dimensions. If the floor cannot be traced
 the calibration is `None` and rendering declines rather than guessing a
 projection — the same instinct as withholding an exact-tier placement.
 
+**The quad covers only the floor the camera saw**, which is never the whole
+room — you cannot photograph the floor you are standing on. So the calibration
+also carries `near_depth_cm`/`far_depth_cm`, the slice of room depth the quad
+spans. Fitting as though it covered everything stretches the homography over
+floor that was never captured and slides near-wall furniture out of the bottom
+of the frame.
+
+Visibility is judged on a piece's **back edge**, not on how much of its
+footprint is in frame. A sofa against the near wall usually has most of its
+floor cropped away — the camera cannot see the carpet under the seat front —
+yet the sofa itself dominates the foreground. Judging by footprint coverage
+would drop the one piece the user most wants to see. What the crop *does* affect
+is confidence: a piece whose floor is largely outside the photo is positioned by
+extrapolation rather than evidence, and its render says so.
+
 **Confidence is capped by its weakest input** — the placement's own confidence,
 whether the room was measured, and the calibration's. A perfectly-placed sofa
 projected through an estimated camera is still an estimate.
 
-Set `REPLICATE_API_TOKEN` for the generative path. Without it the endpoint
-returns **schematic** renders: the item's projected footprint and volume drawn
+Set `GEMINI_API_KEY` (or `REPLICATE_API_TOKEN`) for a real render. Without
+either the endpoint returns **schematic** renders: the item's projected footprint and volume drawn
 over the photo in its swatch colour. Not photorealistic and not pretending to
 be, but it runs the identical projection maths, so a geometry bug shows up with
 no key and no GPU.
 
-> The seed catalog's `image_url`s point at a placeholder host, so appearance
-> conditioning has nothing to fetch and renders fall back to text conditioning —
-> a like-styled piece rather than that exact SKU. Real product imagery is what
-> closes that gap.
+> The seed catalog's `image_url`s point at a placeholder host, so there are no
+> product photos to reference. On the Replicate path renders fall back to text
+> conditioning; on the Gemini path a piece with no fetchable image is **omitted
+> and named in `omitted`**, since a composed render's whole value is fidelity to
+> the real product. Real product imagery is the prerequisite for either.
 
 ### Precision tiers
 

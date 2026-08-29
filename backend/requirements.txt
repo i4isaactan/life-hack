@@ -10,3 +10,4 @@ pydantic>=2.7
 python-dotenv==1.1.1
 Pillow==12.1.0
 replicate>=1.0.0
+google-genai>=2.20.0

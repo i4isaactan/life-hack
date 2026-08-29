@@ -74,8 +74,28 @@ DEFAULT_BUDGET_CENTS = 150_000
 
 
 # --- Rendering -------------------------------------------------------------
-# Replicate hosts the Tier 2 stack. Unset means the schematic renderer runs
-# instead, exactly as an unset OPENAI_API_KEY means mock vision.
+# Two backends, tried in order. Unset both and the schematic renderer runs,
+# exactly as an unset OPENAI_API_KEY means mock vision.
+#
+# Gemini is preferred: one multi-image call composes the whole room from the
+# room photo plus the catalog product shots, so the recommended furniture is
+# rendered from its actual photograph rather than from a text description of
+# it. Replicate's four-model chain gives mask-level control the single call
+# cannot, at roughly 25 predictions and 60-120s per room.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+HAS_GEMINI = bool(GEMINI_API_KEY)
+
+# "Nano Banana 2 Lite": ~4s, $0.034 per 1K image, up to 14 object references.
+# Google's stated drop-in replacement for gemini-2.5-flash-image, which retires
+# 2 October 2026 and costs more - do not pin the older model in new code.
+GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+
+# The model composes up to 14 object references, but Google's own guidance is
+# that 3-5 focused references control far better than 14 competing ones. A full
+# design is 5-6 pieces, so this caps references at the useful end of that range
+# and drops the lowest-priority roles first.
+GEMINI_MAX_REFERENCES = int(os.getenv("GEMINI_MAX_REFERENCES", "6"))
+
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
 HAS_REPLICATE = bool(REPLICATE_API_TOKEN)
 

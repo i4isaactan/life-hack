@@ -42,6 +42,7 @@ from .models import (
     RenderResult,
     RoomAnalysis,
     Role,
+    RoomRender,
 )
 
 log = logging.getLogger(__name__)
@@ -121,18 +122,35 @@ NEGATIVE_PROMPT = (
 )
 
 
-def _render_confidence(placement: Placement, room: RoomAnalysis) -> Confidence:
+def _render_confidence(
+    placement: Placement,
+    room: RoomAnalysis,
+    projection: FloorProjection | None = None,
+) -> Confidence:
     """A render is never more trustworthy than what it was derived from.
 
-    Three things cap it: the placement's own confidence, whether the room was
-    measured, and the calibration's. Taking the weakest is the honest answer -
-    a perfectly-placed sofa projected through a guessed camera is still a guess.
+    Four things cap it: the placement's own confidence, whether the room was
+    measured, the calibration's, and how much of the piece's floor the camera
+    actually saw. Taking the weakest is the honest answer - a perfectly-placed
+    sofa projected through a guessed camera is still a guess.
     """
     ladder = [Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH]
     caps = [placement.confidence]
     caps.append(Confidence.HIGH if room.measured else Confidence.MEDIUM)
     if room.camera is not None:
         caps.append(room.camera.confidence)
+    if projection is not None:
+        # Past the photographed floor the homography is extrapolating, and
+        # extrapolation degrades with distance. A piece sitting mostly outside
+        # the captured floor is positioned by arithmetic, not by evidence.
+        seen = projection.visible_fraction(placement.y_cm, placement.d_cm)
+        caps.append(
+            Confidence.HIGH
+            if seen >= 0.75
+            else Confidence.MEDIUM
+            if seen >= 0.25
+            else Confidence.LOW
+        )
     return min(caps, key=ladder.index)
 
 
@@ -142,6 +160,9 @@ class RenderProvider:
     def __init__(self) -> None:
         self._client = None
         self.source = "mock"
+        # Composing backend, used for whole-room renders. Independent of the
+        # per-item one: a deployment may have either, both, or neither.
+        self.composer = GeminiComposer()
         if config.HAS_REPLICATE:
             try:
                 import replicate
@@ -155,9 +176,17 @@ class RenderProvider:
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 log.warning("Replicate unavailable, using schematic renders: %s", exc)
+        if self.composer.available and self._client is None:
+            self.source = self.composer.source
+
+    @property
+    def can_compose(self) -> bool:
+        """Whether a whole-room render is available."""
+        return self.composer.available
 
     @property
     def method(self) -> RenderMethod:
+        """The method a per-item render would use."""
         return (
             RenderMethod.GENERATIVE
             if self._client is not None
@@ -224,19 +253,31 @@ class RenderProvider:
                 item.dimensions.height_cm,
             )
         except ProjectionError as exc:
+            # The calibration is fine; this piece simply sits on floor the
+            # camera never saw. Saying so lets the client suggest a wider shot
+            # instead of implying the photo could not be read at all.
             return RenderFailure(
                 item_id=item.id,
                 name=item.title,
                 role=item.role,
-                reason="no_calibration",
+                reason="out_of_frame",
                 detail=str(exc),
             )
 
         replaced = plate.find(item.role)
-        confidence = _render_confidence(placement, room)
+        confidence = _render_confidence(placement, room, projection)
 
         if self._client is None:
-            image = self._schematic(base, placement, item, projection)
+            try:
+                image = self._schematic(base, placement, item, projection)
+            except ProjectionError as exc:
+                return RenderFailure(
+                    item_id=item.id,
+                    name=item.title,
+                    role=item.role,
+                    reason="out_of_frame",
+                    detail=str(exc),
+                )
             method = RenderMethod.SCHEMATIC
         else:
             try:
@@ -610,6 +651,321 @@ async def _fetch_product_image(url: str) -> str | None:
         return None
 
 
+# --- composing renderer (Gemini) -------------------------------------------
+
+# Roles the model is shown a reference for first when the budget is tight. The
+# pieces that define a room read as wrong if they are missing; a lamp does not.
+_REFERENCE_PRIORITY: list[Role] = [
+    Role.SOFA,
+    Role.RUG,
+    Role.COFFEE_TABLE,
+    Role.TV_UNIT,
+    Role.ACCENT_CHAIR,
+    Role.FLOOR_LAMP,
+]
+
+
+def describe_position(placement: Placement, room: RoomAnalysis) -> str:
+    """The solver's coordinates as spatial language a model can act on.
+
+    A composing model edits the whole image and takes no mask, so the solver's
+    geometry has to travel as description. Fractions of the room read better
+    than centimetres: the model has no metre stick, but it can see that
+    something belongs two-thirds of the way back and slightly left of centre.
+    """
+    cx = (placement.x_cm + placement.w_cm / 2) / max(room.width_cm, 1)
+    cy = (placement.y_cm + placement.d_cm / 2) / max(room.depth_cm, 1)
+
+    if cx < 0.33:
+        across = "on the left side"
+    elif cx > 0.67:
+        across = "on the right side"
+    else:
+        across = "centred left-to-right"
+
+    if cy < 0.3:
+        along = "against the far wall"
+    elif cy > 0.7:
+        along = "in the foreground, nearest the camera"
+    else:
+        along = "in the middle of the room"
+
+    width_share = placement.w_cm / max(room.width_cm, 1)
+    return (
+        f"{along}, {across}, spanning roughly {width_share * 100:.0f}% of the "
+        f"room's width ({placement.w_cm:.0f}cm wide)"
+    )
+
+
+def build_composition_prompt(
+    room: RoomAnalysis,
+    placements: list[Placement],
+    items: dict[str, CatalogItem],
+    replaced: list[str],
+) -> str:
+    """The instruction accompanying the room photo and the product references.
+
+    Numbered to match the order the reference images are appended, because the
+    model has no other way to tell which photo is the sofa.
+    """
+    lines = [
+        "You are compositing a photorealistic interior visualization.",
+        "",
+        "The FIRST image is a photograph of a real room. Each image after it is "
+        "a product photograph of a piece of furniture.",
+        "",
+        "Produce a single photorealistic image of that same room, from the same "
+        "camera position and with the same walls, windows, flooring and "
+        "daylight, but furnished with the products shown.",
+        "",
+    ]
+
+    if replaced:
+        lines += [
+            "First remove the existing furniture: "
+            + ", ".join(sorted(set(replaced)))
+            + ". Reconstruct the floor and walls behind it convincingly.",
+            "",
+        ]
+
+    lines.append("Then place each product:")
+    for n, p in enumerate(placements, start=2):
+        item = items[p.item_id]
+        relation = _relate(p, placements, items)
+        lines.append(
+            f"  {n}. {item.title} ({item.role.value.replace('_', ' ')}) - "
+            f"{describe_position(p, room)}"
+            + (f"; {relation}" if relation else "")
+            + "."
+        )
+
+    lines += [
+        "",
+        "Requirements:",
+        "- Match each piece to its reference photograph: same shape, same "
+        "materials, same colour, same proportions. These are real products a "
+        "customer will buy, so silhouette and finish must be recognisable.",
+        "- Respect the stated positions and relative sizes. Furniture rests on "
+        "the floor with contact shadows; nothing floats or intersects.",
+        f"- Keep the room's own character: {room.wall_color} walls, "
+        f"{room.flooring} flooring, {room.lighting}.",
+        "- Relight each product to match the room's existing light direction "
+        "and warmth rather than keeping its studio lighting.",
+        "- Photographic realism. No text, labels, watermarks or illustration.",
+    ]
+    return "\n".join(lines)
+
+
+def _relate(
+    placement: Placement,
+    placements: list[Placement],
+    items: dict[str, CatalogItem],
+) -> str:
+    """How this piece sits relative to the others, in one phrase.
+
+    Absolute positions alone lose the relationships that make a layout read as
+    designed rather than scattered: a coffee table belongs in front of its
+    sofa, and everything belongs on top of the rug. The solver already
+    guarantees these, so stating them costs nothing and is what stops the model
+    arranging the same pieces into an unrelated room.
+    """
+    by_role = {p.role: p for p in placements}
+    sofa = by_role.get(Role.SOFA)
+    rug = by_role.get(Role.RUG)
+
+    parts: list[str] = []
+    if placement.role is Role.COFFEE_TABLE and sofa:
+        parts.append("directly in front of the sofa, within easy reach of it")
+    elif placement.role is Role.TV_UNIT and sofa:
+        parts.append("against the wall the sofa faces, opposite it")
+    elif placement.role is Role.ACCENT_CHAIR and sofa:
+        parts.append("angled towards the sofa, beside it")
+    elif placement.role is Role.FLOOR_LAMP and sofa:
+        parts.append("standing beside the sofa")
+
+    # The rug is the one piece everything else rests on, which a flat list of
+    # positions would otherwise leave the model to guess at.
+    if rug is not None and placement.role not in (Role.RUG, Role.FLOOR_LAMP):
+        if _overlaps_rug(placement, rug):
+            parts.append("with its front legs resting on the rug")
+    if placement.role is Role.RUG:
+        parts.append("lying flat on the floor beneath the other furniture")
+
+    return ", ".join(parts)
+
+
+def _overlaps_rug(placement: Placement, rug: Placement) -> bool:
+    """Whether a piece's footprint sits over the rug's."""
+    return (
+        placement.x_cm < rug.x_cm + rug.w_cm
+        and rug.x_cm < placement.x_cm + placement.w_cm
+        and placement.y_cm < rug.y_cm + rug.d_cm
+        and rug.y_cm < placement.y_cm + placement.d_cm
+    )
+
+
+class GeminiComposer:
+    """Renders a whole design in one multi-image call.
+
+    Nano Banana composes up to 14 object references, which is what makes this
+    worth doing: the recommended furniture is rendered from its actual catalog
+    photograph rather than from a text description of it. That is the product
+    fidelity the per-item inpaint path could only approximate.
+    """
+
+    def __init__(self) -> None:
+        self._client = None
+        self.source = "mock"
+        if config.HAS_GEMINI:
+            try:
+                from google import genai
+
+                self._client = genai.Client(api_key=config.GEMINI_API_KEY)
+                self.source = "gemini"
+            except ImportError:
+                log.warning(
+                    "GEMINI_API_KEY is set but the 'google-genai' package is "
+                    "not installed; falling back to schematic renders"
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                log.warning("Gemini unavailable, using schematic renders: %s", exc)
+
+    @property
+    def available(self) -> bool:
+        return self._client is not None
+
+    async def compose(
+        self,
+        image_b64: str,
+        room: RoomAnalysis,
+        placements: list[Placement],
+        items: dict[str, CatalogItem],
+        replaced: list[str],
+    ) -> RoomRender:
+        """One call: room photo + product photos + the solver's layout."""
+        if self._client is None:  # pragma: no cover - guarded by callers
+            raise RuntimeError("no Gemini client")
+
+        started = time.perf_counter()
+
+        # Priority order, then the reference cap. Fewer, well-chosen references
+        # compose better than the maximum the model will accept.
+        ordered = sorted(
+            placements,
+            key=lambda p: _REFERENCE_PRIORITY.index(p.role)
+            if p.role in _REFERENCE_PRIORITY
+            else len(_REFERENCE_PRIORITY),
+        )
+        budget = max(1, config.GEMINI_MAX_REFERENCES)
+        omitted = [p.item_id for p in ordered[budget:]]
+        ordered = ordered[:budget]
+
+        room_img = _decode(image_b64)
+        parts: list = [room_img]
+        used: list[Placement] = []
+        for p in ordered:
+            item = items.get(p.item_id)
+            if item is None:
+                omitted.append(p.item_id)
+                continue
+            product = await _fetch_product_pil(item.image_url)
+            if product is None:
+                # No reference means the model would invent this piece from its
+                # name alone, which is exactly the fidelity gap this path
+                # exists to close. Leave it out and say so.
+                omitted.append(p.item_id)
+                continue
+            parts.append(product)
+            used.append(p)
+
+        if not used:
+            raise RuntimeError(
+                "no product images could be fetched; nothing to compose from"
+            )
+
+        prompt = build_composition_prompt(room, used, items, replaced)
+        image = await asyncio.wait_for(
+            asyncio.to_thread(self._generate, [prompt] + parts),
+            timeout=config.RENDER_TIMEOUT_SECONDS,
+        )
+
+        return RoomRender(
+            image_url=_data_uri(image),
+            method=RenderMethod.COMPOSED,
+            item_ids=[p.item_id for p in used],
+            omitted=omitted,
+            replaced=replaced,
+            confidence=_compose_confidence(used, room),
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    def _generate(self, contents: list):
+        """Blocking SDK call, run off the event loop."""
+        from google.genai import types
+
+        resp = self._client.models.generate_content(
+            model=config.GEMINI_IMAGE_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                # Composition should follow the references, not improvise on
+                # them. Low temperature keeps the products recognisable.
+                temperature=0.4,
+            ),
+        )
+        return _extract_image(resp)
+
+
+def _extract_image(resp):
+    """Pull the generated image out of a GenerateContentResponse.
+
+    The SDK returns candidates whose parts may mix text and inline image data,
+    so this walks for the first image part rather than assuming position.
+    """
+    from PIL import Image
+
+    for candidate in getattr(resp, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            data = getattr(inline, "data", None) if inline else None
+            if data:
+                raw = base64.b64decode(data) if isinstance(data, str) else data
+                return Image.open(io.BytesIO(raw)).convert("RGB")
+
+    # A refusal or a safety block comes back as text, not as an error, so
+    # surface whatever the model said instead of a bare "no image".
+    text = (getattr(resp, "text", None) or "").strip()
+    raise RuntimeError(f"model returned no image{': ' + text[:200] if text else ''}")
+
+
+def _compose_confidence(placements: list[Placement], room: RoomAnalysis) -> Confidence:
+    """How much to trust a composed render.
+
+    Capped one notch below the per-item path by construction: a composing model
+    takes no mask, so the solver's geometry reaches it as description rather
+    than as a constraint. Positions are a strong suggestion, not a guarantee.
+    """
+    ladder = [Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH]
+    caps = [Confidence.MEDIUM]  # description-driven placement never rates HIGH
+    caps += [p.confidence for p in placements]
+    if not room.measured:
+        caps.append(Confidence.LOW)
+    return min(caps, key=ladder.index)
+
+
+async def _fetch_product_pil(url: str):
+    """A catalog product shot as a PIL image, or None if unfetchable."""
+    data_uri = await _fetch_product_image(url)
+    if data_uri is None:
+        return None
+    try:
+        return _decode(data_uri.split(",", 1)[-1])
+    except Exception as exc:
+        log.info("could not decode product image %s: %s", url, exc)
+        return None
+
+
 # --- orchestration ---------------------------------------------------------
 
 
@@ -803,11 +1159,42 @@ def selftest() -> None:
     subset = asyncio.run(_run(only=[target]))
     assert [r.item_id for r in subset] == [target], "only= filter did not apply"
 
+    # 7. The composition prompt is the whole geometry channel for the composing
+    # backend - it takes no mask - so it must actually carry the layout.
+    prompt = build_composition_prompt(
+        room, layout.placements, items, ["old green sofa"]
+    )
+    assert "old green sofa" in prompt, "removal instruction lost"
+    for n, p in enumerate(layout.placements, start=2):
+        assert f"  {n}. {items[p.item_id].title}" in prompt, (
+            f"{p.name} missing or misnumbered in the prompt"
+        )
+    # Numbering must match reference order: the model has no other way to tell
+    # which product photo is the sofa.
+    positions = [prompt.index(f"  {n}. ") for n in range(2, len(layout.placements) + 2)]
+    assert positions == sorted(positions), "prompt numbering is out of order"
+    table = next((p for p in layout.placements if p.role is Role.COFFEE_TABLE), None)
+    if table and any(p.role is Role.SOFA for p in layout.placements):
+        assert "in front of the sofa" in prompt, "table lost its relation to seating"
+
+    # 8. Composing is refused cleanly when unavailable, rather than half-running.
+    if not provider.can_compose:
+        failure = asyncio.run(render_room(provider, photo, room, layout, items))
+        assert isinstance(failure, RenderFailure), "compose should fail with no backend"
+        assert failure.reason == "provider_error", failure.reason
+        no_photo_room = asyncio.run(render_room(provider, None, room, layout, items))
+        assert (
+            isinstance(no_photo_room, RenderFailure)
+            and no_photo_room.reason == "no_photo"
+        ), "a missing photo must be reported before the backend check"
+
     for r in ok:
         print(
             f"    {r.role.value:<13} {r.name:<26} {r.method.value:<10} "
             f"{r.confidence.value:<6} {r.elapsed_ms:>4}ms"
         )
+    print(f"    composition prompt: {len(prompt)} chars, "
+          f"{len(layout.placements)} products referenced")
     print("all render invariants hold")
 
 
@@ -822,6 +1209,84 @@ def _blank_photo() -> str:
     buf = io.BytesIO()
     Image.new("RGB", (1024, 768), (232, 226, 216)).save(buf, format="JPEG")
     return base64.b64encode(buf.getvalue()).decode()
+
+
+async def render_room(
+    provider: RenderProvider,
+    image_b64: str | None,
+    room: RoomAnalysis,
+    layout: LayoutResult,
+    items: dict[str, CatalogItem],
+    only: list[str] | None = None,
+) -> RoomRender | RenderFailure:
+    """Compose the whole design into the room photo in one call.
+
+    The counterpart to render_layout: that yields one image per item, this
+    returns one image of the finished room. Preferred when a composing backend
+    is configured, because every piece is rendered from its real product
+    photograph and the lighting is solved once for the whole scene.
+    """
+    placements = [p for p in layout.placements if not only or p.item_id in only]
+
+    if not placements:
+        return RenderFailure(
+            item_id="",
+            name="room",
+            role=Role.SOFA,
+            reason="not_placed",
+            detail="no items were placed to render",
+        )
+
+    if not image_b64:
+        return RenderFailure(
+            item_id="",
+            name="room",
+            role=placements[0].role,
+            reason="no_photo",
+            detail="a room photo is required to visualize replacements",
+        )
+
+    if not provider.can_compose:
+        return RenderFailure(
+            item_id="",
+            name="room",
+            role=placements[0].role,
+            reason="provider_error",
+            detail="no composing renderer is configured",
+        )
+
+    # Name the existing furniture so the prompt can ask for its removal. This
+    # is best-effort: without a detector we simply do not mention it, and the
+    # model is told to furnish the room rather than to clear it first.
+    replaced: list[str] = []
+    roles = list({p.role for p in placements})
+    try:
+        plate = await provider.prepare_plate(image_b64, roles)
+        replaced = [d.label for d in plate.detections]
+    except Exception as exc:
+        log.info("no detection available for removal hints: %s", exc)
+
+    try:
+        return await provider.composer.compose(
+            image_b64, room, placements, items, replaced
+        )
+    except asyncio.TimeoutError:
+        return RenderFailure(
+            item_id="",
+            name="room",
+            role=placements[0].role,
+            reason="provider_error",
+            detail=f"render exceeded {config.RENDER_TIMEOUT_SECONDS:.0f}s",
+        )
+    except Exception as exc:
+        log.warning("room composition failed: %s", exc)
+        return RenderFailure(
+            item_id="",
+            name="room",
+            role=placements[0].role,
+            reason="provider_error",
+            detail=str(exc),
+        )
 
 
 if __name__ == "__main__":
